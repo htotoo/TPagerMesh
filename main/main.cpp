@@ -20,6 +20,7 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "MtCompact.hpp"
 #include "nmea_parser.h"
 #include "encoder.h"
+#include "button.h"
 #include "mykey.hpp"
 
 #define RE_A_GPIO 40
@@ -28,6 +29,8 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 
 static QueueHandle_t event_queue_re;
 static rotary_encoder_t re;
+
+button_t btn_power;
 
 // #define CLIENTROLEALERT 1
 
@@ -113,6 +116,23 @@ bool needsSeqReply(std::string& msg) {
     return (lower_msg.rfind("seq ", 0) == 0);
 }
 
+void on_button(button_t* btn, button_state_t state) {
+    // ESP_LOGI(TAG, "%s button %d", btn == &btn_power ? "Power btn" : "Unk", (int)state);
+    if (btn == &btn_power) {
+        switch (state) {
+            case BUTTON_CLICKED:
+                ESP_LOGI(TAG, "Power button clicked");
+                break;
+            case BUTTON_PRESSED_LONG:
+                ESP_LOGI(TAG, "Power button long pressed");
+                // todo poweroff
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
@@ -155,6 +175,13 @@ void app_main(void) {
     re.pin_btn = (gpio_num_t)RE_BTN_GPIO;
     ESP_ERROR_CHECK(rotary_encoder_add(&re));
 
+    // button init
+    btn_power.gpio = (gpio_num_t)0;
+    btn_power.pressed_level = 0;
+    btn_power.internal_pull = true;
+    btn_power.autorepeat = false;
+    btn_power.callback = on_button;
+    ESP_ERROR_CHECK(button_init(&btn_power));
     // mt init
     mtCompact.loadNodeDb();
     mtCompact.setOkToMqtt(true);
