@@ -1,3 +1,9 @@
+/*
+haptic: https://github.com/adafruit/Adafruit_DRV2605_Library/blob/master/Adafruit_DRV2605.cpp
+kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
+
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
@@ -13,7 +19,15 @@
 #include "esp_random.h"
 #include "MtCompact.hpp"
 #include "nmea_parser.h"
+#include "encoder.h"
 #include "mykey.hpp"
+
+#define RE_A_GPIO 40
+#define RE_B_GPIO 41
+#define RE_BTN_GPIO 7
+
+static QueueHandle_t event_queue_re;
+static rotary_encoder_t re;
 
 // #define CLIENTROLEALERT 1
 
@@ -130,6 +144,18 @@ void app_main(void) {
     nmea_parser_add_handler(nmea_hdl, gps_event_handler, NULL);
     ESP_LOGI(TAG, "Loading radio config.");
 
+    // rotary encoder init
+    event_queue_re = xQueueCreate(5, sizeof(rotary_encoder_event_t));
+    // Setup rotary encoder library
+    ESP_ERROR_CHECK(rotary_encoder_init(event_queue_re));
+    // Add one encoder
+    memset(&re, 0, sizeof(rotary_encoder_t));
+    re.pin_a = (gpio_num_t)RE_A_GPIO;
+    re.pin_b = (gpio_num_t)RE_B_GPIO;
+    re.pin_btn = (gpio_num_t)RE_BTN_GPIO;
+    ESP_ERROR_CHECK(rotary_encoder_add(&re));
+
+    // mt init
     mtCompact.loadNodeDb();
     mtCompact.setOkToMqtt(true);
     ESP_LOGI(TAG, "Radio initializing...");
@@ -204,6 +230,9 @@ void app_main(void) {
     uint32_t timer = 0;  // 0.1 second timer
     mtCompact.sendMyNodeInfo();
     mtCompact.sendMyNodeInfo();
+
+    rotary_encoder_event_t e;
+    int32_t rot_val = 0;
     while (1) {
         timer++;
         if (timer % (30 * 60 * 10) == 0) {
@@ -212,6 +241,32 @@ void app_main(void) {
         if (mtCompact.nodeinfo_db.needsSave()) {
             mtCompact.saveNodeDb();
             mtCompact.nodeinfo_db.clearChangedFlag();
+        }
+        if (xQueueReceive(event_queue_re, &e, portMAX_DELAY)) {
+            switch (e.type) {
+                case RE_ET_BTN_PRESSED:
+                    ESP_LOGI(TAG, "Button pressed");
+                    break;
+                case RE_ET_BTN_RELEASED:
+                    ESP_LOGI(TAG, "Button released");
+                    break;
+                case RE_ET_BTN_CLICKED:
+                    ESP_LOGI(TAG, "Button clicked");
+                    rotary_encoder_enable_acceleration(&re, 100);
+                    ESP_LOGI(TAG, "Acceleration enabled");
+                    break;
+                case RE_ET_BTN_LONG_PRESSED:
+                    ESP_LOGI(TAG, "Looooong pressed button");
+                    rotary_encoder_disable_acceleration(&re);
+                    ESP_LOGI(TAG, "Acceleration disabled");
+                    break;
+                case RE_ET_CHANGED:
+                    rot_val += e.diff;
+                    ESP_LOGI(TAG, "Value = %" PRIi32, rot_val);
+                    break;
+                default:
+                    break;
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(100));  // wait 100 milliseconds
     }
