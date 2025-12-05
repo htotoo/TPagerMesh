@@ -1,0 +1,4 @@
+dependencies:
+  EspMeshCompact:
+    path: d:/work/EspMeshCompact/
+  espressif/mdns: 1.*
