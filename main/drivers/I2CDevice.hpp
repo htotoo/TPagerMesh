@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
-#include <driver/i2c.h>
+#include <driver/i2c.h>  //todo migrate to i2c_master.h
 #include <string.h>
 #include "esp_log.h"
 
