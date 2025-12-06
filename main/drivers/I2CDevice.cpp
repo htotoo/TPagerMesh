@@ -24,39 +24,31 @@ esp_err_t I2CDevice::i2c_setup_port() {
         return ESP_ERR_INVALID_ARG;
     esp_err_t res;
     if (!cfg_equal(&cfg, &states[port].config) || !states[port].installed) {
-        ESP_LOGI(TAG, "Reconfiguring I2C driver on port %d", port);
         i2c_config_t temp;
         memcpy(&temp, &cfg, sizeof(i2c_config_t));
         temp.mode = I2C_MODE_MASTER;
         // Driver reinstallation
         if (states[port].installed) {
-            ESP_LOGI(TAG, "Uninstalling existing I2C driver on port %d", port);
             i2c_driver_delete(port);
             states[port].installed = false;
         }
         // See https://github.com/espressif/esp-idf/issues/10163
-        ESP_LOGI(TAG, "Installing I2C driver on port %d", port);
         if ((res = i2c_driver_install(port, temp.mode, 0, 0, 0)) != ESP_OK)
             return res;
-        ESP_LOGI(TAG, "Configuring I2C parameters on port %d", port);
         if ((res = i2c_param_config(port, &temp)) != ESP_OK)
             return res;
 
         states[port].installed = true;
 
         memcpy(&states[port].config, &temp, sizeof(i2c_config_t));
-        ESP_LOGD(TAG, "I2C driver successfully reconfigured on port %d", port);
     }
     int t;
-    ESP_LOGI(TAG, "Getting I2C timeout on port %d", port);
     if ((res = i2c_get_timeout(port, &t)) != ESP_OK)
         return res;
     // Timeout cannot be 0
     uint32_t ticks = timeout_ticks ? timeout_ticks : I2CDEV_MAX_STRETCH_TIME;
-    ESP_LOGI(TAG, "Setting I2C timeout to %" PRIu32 " ticks on port %d", ticks, port);
     if ((ticks != t) && (res = i2c_set_timeout(port, ticks)) != ESP_OK)
         return res;
-    ESP_LOGD(TAG, "Timeout: ticks = %" PRIu32 " (%" PRIu32 " usec) on port %d", timeout_ticks, timeout_ticks / 80, port);
     return ESP_OK;
 }
 

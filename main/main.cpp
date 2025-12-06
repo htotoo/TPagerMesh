@@ -24,6 +24,9 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "drivers/encoder.h"
 #include "drivers/button.h"
 #include "drivers/DRV2605.hpp"
+#include "drivers/XPowersLib.h"
+
+XPowersPPM PPM;
 
 #define RE_A_GPIO 40
 #define RE_B_GPIO 41
@@ -129,6 +132,7 @@ void on_button(button_t* btn, button_state_t state) {
             case BUTTON_PRESSED_LONG:
                 ESP_LOGI(TAG, "Power button long pressed");
                 // todo poweroff
+                PPM.shutdown();
                 break;
             default:
                 break;
@@ -199,6 +203,18 @@ void app_main(void) {
         haptic.go();
     } else {
         ESP_LOGW(TAG, "Haptic driver not found.");
+    }
+
+    // power
+    if (PPM.begin(I2C_NUM_0, 0x6B, 3, 2)) {
+        ESP_LOGI(TAG, "Power driver initialized.");
+    } else {
+        ESP_LOGW(TAG, "Power driver not found.");
+    }
+    if (PPM.init()) {
+        ESP_LOGI(TAG, "Power driver init success.");
+    } else {
+        ESP_LOGW(TAG, "Power driver init failed.");
     }
 
     // mt init
