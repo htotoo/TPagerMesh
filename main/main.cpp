@@ -1,4 +1,6 @@
 /*
+pins: https://github.com/Xinyuan-LilyGO/LilyGoLib/blob/master/docs/hardware/lilygo-t-lora-pager.md#-powermanage-channel
+
 haptic: https://github.com/adafruit/Adafruit_DRV2605_Library/blob/master/Adafruit_DRV2605.cpp
 kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 
@@ -22,6 +24,7 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "encoder.h"
 #include "button.h"
 #include "mykey.hpp"
+#include "DRV2605.hpp"
 
 #define RE_A_GPIO 40
 #define RE_B_GPIO 41
@@ -182,6 +185,22 @@ void app_main(void) {
     btn_power.autorepeat = false;
     btn_power.callback = on_button;
     ESP_ERROR_CHECK(button_init(&btn_power));
+
+    DRV2605 haptic;
+    // haptic init
+    bool has_haptic = haptic.begin();
+    if (has_haptic) {
+        ESP_LOGI(TAG, "Haptic driver found.");
+        haptic.selectLibrary(1);
+        haptic.setMode(DRV2605_MODE_INTTRIG);
+        haptic.setWaveform(0, 1);  // play effect
+        haptic.setWaveform(1, 0);  // end waveform
+        // play the effect!
+        haptic.go();
+    } else {
+        ESP_LOGW(TAG, "Haptic driver not found.");
+    }
+
     // mt init
     mtCompact.loadNodeDb();
     mtCompact.setOkToMqtt(true);
