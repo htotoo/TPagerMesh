@@ -2,3 +2,5 @@ dependencies:
   EspMeshCompact:
     path: d:/work/EspMeshCompact/
   espressif/mdns: 1.*
+  espressif/esp_lcd_st7796: 1.*
+  lvgl/lvgl: 9.*

@@ -3,6 +3,9 @@ pins: https://github.com/Xinyuan-LilyGO/LilyGoLib/blob/master/docs/hardware/lily
 
 kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 
+// TODOS:
+- fix xpowerslib i2c init error (shows error, but works. need to migrate it to i2cdev class)
+
 */
 
 #include <stdio.h>
@@ -25,7 +28,8 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "drivers/button.h"
 #include "drivers/DRV2605.hpp"
 #include "drivers/XPowersLib.h"
-
+#include "drivers/st7796.hpp"
+ST7796Driver lcd;
 XPowersPPM PPM;
 
 #define RE_A_GPIO 40
@@ -128,6 +132,7 @@ void on_button(button_t* btn, button_state_t state) {
         switch (state) {
             case BUTTON_CLICKED:
                 ESP_LOGI(TAG, "Power button clicked");
+                lcd.dispToggle();
                 break;
             case BUTTON_PRESSED_LONG:
                 ESP_LOGI(TAG, "Power button long pressed");
@@ -216,6 +221,10 @@ void app_main(void) {
     } else {
         ESP_LOGW(TAG, "Power driver init failed.");
     }
+
+    // LCD init
+    lcd.begin();
+    lcd.dispOnOff(true);
 
     // mt init
     mtCompact.loadNodeDb();
