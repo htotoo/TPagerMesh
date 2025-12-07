@@ -121,7 +121,11 @@ void ST7796Driver::setBrightness(uint8_t brightness_percent) {
         brightness = 100;
     else
         brightness = brightness_percent;
-    aw9364_set_brightness_pct(aw9364_dev_hdl, brightness, 100);
+    if ((brightness > 6) != disp_on) {
+        dispOnOff(brightness > 6);
+    } else {
+        aw9364_set_brightness_pct(aw9364_dev_hdl, brightness, 100);
+    }
 }
 
 bool ST7796Driver::notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t* edata, void* user_ctx) {
@@ -202,6 +206,4 @@ void ST7796Driver::init_backlight() {
     ESP_LOGI(TAG, "initialize aw9364");
     esp_err_t err = aw9364_init(&lcd_backlight_channel, &lcd_backlight_timer, &aw9364_dev_hdl);
     ESP_ERROR_CHECK(err);
-    brightness = 100;
-    dispOnOff(true);
 }

@@ -39,6 +39,11 @@ XPowersPPM PPM;
 
 static QueueHandle_t event_queue_re;
 static rotary_encoder_t re;
+struct {
+    int32_t diff;           // Rotary turns
+    bool physical_holding;  // Is the button currently held down?
+    bool latched_press;     // Did a press happen since last poll?
+} lvgl_encoder_state = {0, false, false};
 
 button_t btn_power;
 
@@ -146,8 +151,29 @@ void on_button(button_t* btn, button_state_t state) {
     }
 }
 
+void encoder_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
+    // 1. Report Encoder Diff
+    data->enc_diff = lvgl_encoder_state.diff;
+    lvgl_encoder_state.diff = 0;
+    if (lvgl_encoder_state.latched_press) {
+        data->state = LV_INDEV_STATE_PRESSED;
+        lvgl_encoder_state.latched_press = false;
+    } else {
+        if (lvgl_encoder_state.physical_holding) {
+            data->state = LV_INDEV_STATE_PRESSED;
+        } else {
+            data->state = LV_INDEV_STATE_RELEASED;
+        }
+    }
+}
+
 void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
+
+    // LCD init
+    lcd.begin();
+    lcd.setBrightness(100);  // this also turns on the display
+
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_ap();
@@ -187,6 +213,9 @@ void app_main(void) {
     re.pin_b = (gpio_num_t)RE_B_GPIO;
     re.pin_btn = (gpio_num_t)RE_BTN_GPIO;
     ESP_ERROR_CHECK(rotary_encoder_add(&re));
+    lv_indev_t* encoder_indev = lv_indev_create();
+    lv_indev_set_type(encoder_indev, LV_INDEV_TYPE_ENCODER);
+    lv_indev_set_read_cb(encoder_indev, encoder_read_cb);
 
     // button init
     btn_power.gpio = (gpio_num_t)0;
@@ -222,10 +251,6 @@ void app_main(void) {
     } else {
         ESP_LOGW(TAG, "Power driver init failed.");
     }
-
-    // LCD init
-    lcd.begin();
-    lcd.dispOnOff(true);
 
     // mt init
     mtCompact.loadNodeDb();
@@ -318,23 +343,22 @@ void app_main(void) {
             switch (e.type) {
                 case RE_ET_BTN_PRESSED:
                     ESP_LOGI(TAG, "Button pressed");
+                    lvgl_encoder_state.physical_holding = true;
+                    lvgl_encoder_state.latched_press = true;
                     break;
                 case RE_ET_BTN_RELEASED:
                     ESP_LOGI(TAG, "Button released");
+                    lvgl_encoder_state.physical_holding = false;
                     break;
                 case RE_ET_BTN_CLICKED:
                     ESP_LOGI(TAG, "Button clicked");
-                    rotary_encoder_enable_acceleration(&re, 100);
-                    ESP_LOGI(TAG, "Acceleration enabled");
                     break;
                 case RE_ET_BTN_LONG_PRESSED:
                     ESP_LOGI(TAG, "Looooong pressed button");
-                    rotary_encoder_disable_acceleration(&re);
-                    ESP_LOGI(TAG, "Acceleration disabled");
                     break;
                 case RE_ET_CHANGED:
-                    rot_val += e.diff;
-                    ESP_LOGI(TAG, "Value = %" PRIi32, rot_val);
+                    lvgl_encoder_state.diff += e.diff;
+                    ESP_LOGI(TAG, "Value = %" PRIi32, lvgl_encoder_state.diff);
                     break;
                 default:
                     break;
