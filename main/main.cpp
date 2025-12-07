@@ -29,9 +29,11 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "drivers/DRV2605.hpp"
 #include "drivers/XPowersLib.h"
 #include "drivers/st7796.hpp"
+#include "drivers/keypad_irq.hpp"
 #include "esp_timer.h"
 ST7796Driver lcd;
 XPowersPPM PPM;
+KeypadDriver keypad;
 
 #define RE_A_GPIO 40
 #define RE_B_GPIO 41
@@ -251,6 +253,9 @@ void app_main(void) {
     } else {
         ESP_LOGW(TAG, "Power driver init failed.");
     }
+
+    ESP_LOGI(TAG, "Initializing Keypad...");
+    keypad.begin();
 
     // mt init
     mtCompact.loadNodeDb();
