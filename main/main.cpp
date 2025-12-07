@@ -29,6 +29,7 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "drivers/DRV2605.hpp"
 #include "drivers/XPowersLib.h"
 #include "drivers/st7796.hpp"
+#include "esp_timer.h"
 ST7796Driver lcd;
 XPowersPPM PPM;
 
@@ -313,7 +314,7 @@ void app_main(void) {
             mtCompact.saveNodeDb();
             mtCompact.nodeinfo_db.clearChangedFlag();
         }
-        if (xQueueReceive(event_queue_re, &e, portMAX_DELAY)) {
+        if (xQueueReceive(event_queue_re, &e, 0)) {
             switch (e.type) {
                 case RE_ET_BTN_PRESSED:
                     ESP_LOGI(TAG, "Button pressed");
@@ -339,6 +340,7 @@ void app_main(void) {
                     break;
             }
         }
+        lv_timer_handler();
         vTaskDelay(pdMS_TO_TICKS(100));  // wait 100 milliseconds
     }
 }
