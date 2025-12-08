@@ -26,6 +26,8 @@ class KeypadDriver {
     // Accessor for main.cpp
     static lv_indev_t* get_indev() { return indev_keypad; }
 
+    void register_lvgl();
+
    private:
     static void IRAM_ATTR isr_handler(void* arg);
     static void handle_interrupt_task(void* arg);

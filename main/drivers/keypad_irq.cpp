@@ -107,7 +107,6 @@ void KeypadDriver::begin() {
     int safety = 0;
     do {
         event = read_byte(REG_KEY_EVENT_A);
-        if (event != 0) ESP_LOGI(TAG, " -> Drained: %d", event);
         safety++;
     } while (event != 0 && safety < 20);
     write_byte(REG_INT_STAT, 0xFF);
@@ -120,69 +119,56 @@ void KeypadDriver::begin() {
     io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
     gpio_config(&io_conf);
 
-    // DEBUG: Check if pin is HIGH (Ready) or LOW (Stuck)
-    int pin_state = gpio_get_level(KEYPAD_IRQ_PIN);
-    ESP_LOGI(TAG, "IRQ Pin Initial State: %d (Should be 1)", pin_state);
-    if (pin_state == 0) {
-        ESP_LOGE(TAG, "WARNING: IRQ Pin is LOW! Interrupts may fail. Check INT_STAT: 0x%02X", read_byte(REG_INT_STAT));
-    }
-
     gpio_install_isr_service(0);
     gpio_isr_handler_add(KEYPAD_IRQ_PIN, isr_handler, NULL);
 
     xTaskCreate(handle_interrupt_task, "keypad_task", 4096, NULL, 10, NULL);
-
-    indev_keypad = lv_indev_create();
-    lv_indev_set_type(indev_keypad, LV_INDEV_TYPE_KEYPAD);
-    lv_indev_set_read_cb(indev_keypad, read_cb);
-
-    // Configure Long Press (1.5 Seconds)
-    lv_indev_set_long_press_time(indev_keypad, 1500);
 
     ESP_LOGI(TAG, "Keypad Ready.");
 }
 
 void KeypadDriver::handle_interrupt_task(void* arg) {
     while (1) {
-        if (xSemaphoreTake(irq_sem, portMAX_DELAY)) {
-            // ESP_LOGI(TAG, "IRQ Fired"); // Uncomment if you suspect ISR isn't running
+        // FIX 1: Add a timeout (50ms). If IRQ line gets stuck LOW, we wake up and check anyway.
+        // This prevents the "stuck keyboard" issue if an edge is missed.
+        bool taken = xSemaphoreTake(irq_sem, pdMS_TO_TICKS(50));
 
-            uint8_t status = read_byte(REG_INT_STAT);
-            if (status & 0x01) {
-                uint8_t key_event = read_byte(REG_KEY_EVENT_A);
+        // Check Pin State: If Semaphore taken OR Pin is physically LOW (Active)
+        if (taken || gpio_get_level(KEYPAD_IRQ_PIN) == 0) {
+            // Loop until the INT_STAT register says we are clean
+            while (true) {
+                uint8_t status = read_byte(REG_INT_STAT);
 
-                while (key_event != 0) {
-                    // Logic: Bit 7 is 1 for PRESS
+                // If Key Event (Bit 0) is NOT set, we are done draining
+                if ((status & 0x01) == 0) {
+                    break;
+                }
+
+                // Drain FIFO completely
+                while (true) {
+                    uint8_t key_event = read_byte(REG_KEY_EVENT_A);
+                    if (key_event == 0) break;  // FIFO Empty
+
                     bool is_press = (key_event & 0x80) != 0;
                     uint8_t key_id = key_event & 0x7F;
 
                     if (is_press) {
+                        // Only map and queue on PRESS
                         uint32_t key_code = map_key(key_id);
-
-                        // Action 1: Queue for Typing
                         if (key_code != 0) {
                             xQueueSend(key_queue, &key_code, 0);
-                            ESP_LOGI(TAG, "PRESS: '%c' (ID=%d)", (char)key_code, key_id);
-                        } else {
-                            // If key_code is 0 (e.g. FN/Shift), we still log it
-                            ESP_LOGI(TAG, "MODIFIER/UNMAPPED (ID=%d)", key_id);
+                            ESP_LOGI(TAG, "PRESS: %d", key_id);
                         }
-
-                        // Action 2: Track "Held" state for Long Press
                         current_held_key = key_code;
-
                     } else {
-                        // Key Released
-                        ESP_LOGI(TAG, "RELEASE (ID=%d)", key_id);
-                        if (current_held_key != 0) {  // Only clear if we were tracking something
-                            current_held_key = 0;
-                        }
+                        // FIX 2: Do NOT call map_key on release (prevents side effects like double-shift)
+                        // Just clear the hold state
+                        current_held_key = 0;
                     }
-
-                    // Read next event
-                    key_event = read_byte(REG_KEY_EVENT_A);
                 }
-                write_byte(REG_INT_STAT, 0xFF);
+
+                // Ack Interrupt (Write 1 to clear)
+                write_byte(REG_INT_STAT, 0x01);
             }
         }
     }
@@ -190,54 +176,35 @@ void KeypadDriver::handle_interrupt_task(void* arg) {
 
 // Map Hardware ID -> Array Index
 int KeypadDriver::get_key_index(uint8_t key_id) {
-    // Row 1: Q(1) .. P(10)
     if (key_id >= 1 && key_id <= 10) return key_id - 1;
-
-    // Row 2: A(11) .. L(19)
     if (key_id >= 11 && key_id <= 19) return key_id - 1;
-
-    // Enter (20)
     if (key_id == 20) return 19;
-
-    // Row 3: User Map (Z=22... M=28)
-    if (key_id >= 22 && key_id <= 28) return key_id - 1;  // Maps 22->21 (Z)
-
-    // Special
-    if (key_id == ID_BACKSPACE) return 30;  // BSP
-    if (key_id == ID_SPACE) return 31;      // Space
-
+    if (key_id >= 22 && key_id <= 28) return key_id - 1;
+    if (key_id == ID_BACKSPACE) return 30;
+    if (key_id == ID_SPACE) return 31;
     return -1;
 }
 
 uint32_t KeypadDriver::map_key(uint8_t key_id) {
-    // 1. Modifiers
-    if (key_id == ID_SHIFT) {
-        // Toggle Lower(0) <-> Upper(1)
-        if (key_stage == 1)
-            key_stage = 0;
-        else
-            key_stage = 1;
-        ESP_LOGI(TAG, "Stage Changed: %s", key_stage ? "UPPER" : "lower");
-        return 0;
-    }
-
+    // 1. Group Switcher (FN Key - ID 21)
     if (key_id == ID_FN) {
-        // Toggle Num(2) <-> Lower(0)
-        if (key_stage == 2)
-            key_stage = 0;
-        else
-            key_stage = 2;
-        ESP_LOGI(TAG, "Stage Changed: %s", (key_stage == 2) ? "NUMERIC" : "lower");
-        return 0;
+        return LV_KEY_NEXT;  // Tab to switch groups
     }
 
-    // 2. Standard Map
+    // 2. Mode Switcher (SHIFT Key - ID 29)
+    if (key_id == ID_SHIFT) {
+        key_stage = (key_stage + 1) % 3;
+        ESP_LOGI(TAG, "Mode: %d", key_stage);
+        return 0;  // State change only
+    }
+
+    // 3. Standard Map
     int idx = get_key_index(key_id);
     if (idx < 0 || idx >= KEYMAP_ROWS) return 0;
 
     uint32_t code = TLoraPagerTapMap[idx][key_stage];
 
-    // Fallback to lowercase if current stage is empty
+    // Fallback
     if (code == 0 && key_stage != 0) {
         code = TLoraPagerTapMap[idx][0];
     }
@@ -247,22 +214,18 @@ uint32_t KeypadDriver::map_key(uint8_t key_id) {
 void KeypadDriver::read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     uint32_t key_out;
 
-    // 1. Check Queue (Fast Typing)
+    // 1. Check Queue
     if (xQueueReceive(key_queue, &key_out, 0) == pdTRUE) {
+        // Intercept Tab/Next here if you want to handle it manually in main
+        // But for now we send it to LVGL so it triggers the event listener
+
         data->state = LV_INDEV_STATE_PRESSED;
         data->key = key_out;
         last_sent_key = key_out;
-
-        // If queue has more, read again immediately
-        if (uxQueueMessagesWaiting(key_queue) > 0) {
-            data->continue_reading = true;
-        } else {
-            data->continue_reading = false;
-        }
+        data->continue_reading = (uxQueueMessagesWaiting(key_queue) > 0);
     }
-    // 2. Check Held State (Long Press Logic)
+    // 2. Held State (Only if queue is empty)
     else if (current_held_key != 0 && current_held_key == last_sent_key) {
-        // User is holding the key. Keep reporting PRESSED.
         data->state = LV_INDEV_STATE_PRESSED;
         data->key = last_sent_key;
         data->continue_reading = false;
@@ -283,4 +246,13 @@ uint8_t KeypadDriver::read_byte(uint8_t reg) {
     uint8_t val = 0;
     i2c_master_write_read_device(I2C_PORT, TCA8418_ADDR, &reg, 1, &val, 1, pdMS_TO_TICKS(50));
     return val;
+}
+
+void KeypadDriver::register_lvgl() {
+    indev_keypad = lv_indev_create();
+    lv_indev_set_type(indev_keypad, LV_INDEV_TYPE_KEYPAD);
+    lv_indev_set_read_cb(indev_keypad, read_cb);
+
+    // Configure Long Press (1.5 Seconds)
+    lv_indev_set_long_press_time(indev_keypad, 1500);
 }

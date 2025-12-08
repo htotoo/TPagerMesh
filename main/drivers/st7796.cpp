@@ -52,7 +52,7 @@ bool ST7796Driver::begin() {
 
     esp_lcd_panel_invert_color(panel_handle, true);
     esp_lcd_panel_swap_xy(panel_handle, true);
-    esp_lcd_panel_mirror(panel_handle, false, false);
+    esp_lcd_panel_mirror(panel_handle, true, true);
     esp_lcd_panel_set_gap(panel_handle, 0, 49);
     esp_lcd_panel_disp_on_off(panel_handle, true);
     // init backlight using LEDC
@@ -151,16 +151,16 @@ void ST7796Driver::init_lvgl_display() {
     lv_obj_set_style_radius(c1, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(c1, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_border_width(c1, 0, 0);
-    lv_obj_align(c1, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_align(c1, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_remove_flag(c1, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* c2 = lv_obj_create(lv_scr_act());
     lv_obj_set_size(c2, 20, 20);
-    lv_obj_set_style_radius(c1, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(c1, lv_color_hex(0x0FFF0F), 0);
-    lv_obj_set_style_border_width(c1, 0, 0);
-    lv_obj_align(c1, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_remove_flag(c1, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(c2, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(c2, lv_color_hex(0x0FFF0F), 0);
+    lv_obj_set_style_border_width(c2, 0, 0);
+    lv_obj_align(c2, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_remove_flag(c2, LV_OBJ_FLAG_SCROLLABLE);
 }
 
 void ST7796Driver::init_backlight() {
