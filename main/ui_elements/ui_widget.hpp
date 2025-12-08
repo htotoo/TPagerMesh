@@ -1,32 +1,51 @@
 #pragma once
 
 #include "lvgl.h"
+#include "esp_log.h"
 #include <functional>
 #include <string>
 #include <vector>
 #include <memory>
+#include <cstring>
+
+// Log Tag for UI Debugging
+static const char* UI_TAG = "UI_WIDGET";
+
+// --- Group Wrapper (RAII) ---
+class Group {
+   public:
+    Group() { handle = lv_group_create(); }
+    virtual ~Group() {
+        if (handle) {
+            lv_group_delete(handle);
+            handle = nullptr;
+        }
+    }
+    lv_group_t* get_handle() const { return handle; }
+    void add_obj(lv_obj_t* obj) { lv_group_add_obj(handle, obj); }
+    void focus_obj(lv_obj_t* obj) { lv_group_focus_obj(obj); }
+    void attach_to_indev(lv_indev_t* indev) { lv_indev_set_group(indev, handle); }
+
+   private:
+    lv_group_t* handle = nullptr;
+};
 
 // --- Base Widget Class ---
 class Widget {
    public:
-    // 1. Generic Constructor (Creates a basic container object)
     Widget(Widget* parent = nullptr) {
         lv_obj_t* p = parent ? parent->get_lv_obj() : lv_scr_act();
         obj = lv_obj_create(p);
-        remove_style_all();  // Basic widgets have no visual style by default
+        // NOTE: We do NOT call remove_style_all() here.
+        // Basic widgets need default styles to be visible.
     }
 
-    // 2. Destructor (Removes from screen)
     virtual ~Widget() {
-        if (lv_obj_is_valid(obj)) {
-            lv_obj_delete(obj);
-        }
+        if (lv_obj_is_valid(obj)) lv_obj_delete(obj);
     }
 
-    // Accessors
     lv_obj_t* get_lv_obj() const { return obj; }
 
-    // --- Layout & Logic ---
     void set_visible(bool visible) {
         if (visible)
             lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
@@ -41,22 +60,20 @@ class Widget {
             lv_obj_remove_state(obj, LV_STATE_DISABLED);
     }
 
-    // Size & Pos
     void set_size(int w, int h) { lv_obj_set_size(obj, w, h); }
     void set_width(int w) { lv_obj_set_width(obj, w); }
     void set_height(int h) { lv_obj_set_height(obj, h); }
     void set_pos(int x, int y) { lv_obj_set_pos(obj, x, y); }
-
-    // Flex settings
     void set_flex_grow(uint8_t grow) { lv_obj_set_flex_grow(obj, grow); }
+
     void align(lv_align_t align, int x_ofs = 0, int y_ofs = 0) {
         lv_obj_align(obj, align, x_ofs, y_ofs);
     }
+    void set_align(lv_align_t align) { lv_obj_set_align(obj, align); }
 
-    // Styles
     void set_bg_color(lv_color_t color) {
         lv_obj_set_style_bg_color(obj, color, 0);
-        lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);  // Important: Make it opaque!
     }
 
     void set_border(int width, lv_color_t color) {
@@ -71,56 +88,59 @@ class Widget {
     void add_to_group(lv_group_t* group) {
         if (group) lv_group_add_obj(group, obj);
     }
+    void add_to_group(Group* group) {
+        if (group) lv_group_add_obj(group->get_handle(), obj);
+    }
 
    protected:
     lv_obj_t* obj = nullptr;
-
-    // 3. Protected Constructor for Subclasses
-    // Allows subclasses (like Button) to create their specific object (lv_btn_create)
-    // and pass it up, avoiding double-creation.
     Widget(lv_obj_t* _obj) : obj(_obj) {}
-
     void remove_style_all() { lv_obj_remove_style_all(obj); }
 };
 
-// --- Container (Layouts) ---
+// --- Container ---
 class Container : public Widget {
    public:
     Container(Widget* parent) : Widget(parent) {
-        // Container defaults
+        remove_style_all();
         lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        // Fix: Containers are transparent by default after remove_style_all.
+        // We leave it transparent, but allow set_bg_color to work later.
     }
 
-    // --- The Factory Method ---
-    // 1. Creates C++ Object
-    // 2. Enforces LVGL Parenting
-    // 3. Stores pointer
     template <typename T, typename... Args>
     T* add(Args&&... args) {
-        // Create the widget, passing 'this' as the parent
         auto widget = std::make_unique<T>(this, std::forward<Args>(args)...);
         T* raw_ptr = widget.get();
 
-        // SAFETY NET: Ensure the LVGL object is actually parented to this container.
-        // This fixes cases where the subclass constructor might have ignored the parent arg.
+        // Enforce Parenting
         if (lv_obj_get_parent(raw_ptr->get_lv_obj()) != this->obj) {
             lv_obj_set_parent(raw_ptr->get_lv_obj(), this->obj);
         }
 
+        // Add to group
+        if (default_group) raw_ptr->add_to_group(default_group);
+
         children.push_back(std::move(widget));
+
+        // Debug Log
+        // ESP_LOGI(UI_TAG, "Added Widget to Container. Children count: %d", children.size());
+
         return raw_ptr;
     }
 
-    // Remove and destroy all children
     void clear() {
-        children.clear();  // Destructors will call lv_obj_delete
+        children.clear();
+        // ESP_LOGI(UI_TAG, "Container Cleared");
     }
 
-   protected:
-    // Constructor for subclasses of Container (like FlexContainer)
-    Container(lv_obj_t* _obj) : Widget(_obj) {}
+    void set_default_group(lv_group_t* g) { default_group = g; }
+    void set_default_group(Group* g) { default_group = g ? g->get_handle() : nullptr; }
 
+   protected:
+    Container(lv_obj_t* _obj) : Widget(_obj) { remove_style_all(); }
     std::vector<std::unique_ptr<Widget>> children;
+    lv_group_t* default_group = nullptr;
 };
 
 // --- Flex Layout ---
@@ -128,7 +148,6 @@ class FlexContainer : public Container {
    public:
     FlexContainer(Widget* parent, lv_flex_flow_t flow = LV_FLEX_FLOW_ROW)
         : Container(lv_obj_create(parent ? parent->get_lv_obj() : lv_scr_act())) {
-        remove_style_all();  // Clean slate
         lv_obj_set_layout(obj, LV_LAYOUT_FLEX);
         lv_obj_set_flex_flow(obj, flow);
         lv_obj_set_style_pad_gap(obj, 5, 0);
@@ -141,197 +160,182 @@ class FlexContainer : public Container {
     }
 };
 
-// --- Label Widget ---
+// --- Label ---
 class Label : public Widget {
    public:
     Label(Widget* parent, const std::string& text = "")
         : Widget(lv_label_create(parent ? parent->get_lv_obj() : lv_scr_act())) {
         lv_label_set_text(obj, text.c_str());
     }
-
-    void set_text(const std::string& text) {
-        lv_label_set_text(obj, text.c_str());
-    }
-
-    void set_text_color(lv_color_t color) {
-        lv_obj_set_style_text_color(obj, color, 0);
-    }
+    void set_text(const std::string& text) { lv_label_set_text(obj, text.c_str()); }
+    void set_text_color(lv_color_t color) { lv_obj_set_style_text_color(obj, color, 0); }
+    void set_long_mode(lv_label_long_mode_t mode) { lv_label_set_long_mode(obj, mode); }
 };
 
-// --- Button Widget ---
+// --- Button ---
 class Button : public Widget {
    public:
     Button(Widget* parent, const std::string& text = "", std::function<void()> cb = nullptr)
         : Widget(lv_button_create(parent ? parent->get_lv_obj() : lv_scr_act())), callback(cb) {
-        // Internal label for text
         label_obj = lv_label_create(obj);
         lv_label_set_text(label_obj, text.c_str());
         lv_obj_center(label_obj);
 
-        // Bind callback
         lv_obj_set_user_data(obj, this);
         lv_obj_add_event_cb(obj, internal_event_handler, LV_EVENT_CLICKED, NULL);
     }
-
     void set_text(const std::string& text) {
         if (label_obj) lv_label_set_text(label_obj, text.c_str());
     }
-
-    void set_callback(std::function<void()> cb) {
-        callback = cb;
-    }
+    void set_callback(std::function<void()> cb) { callback = cb; }
 
    private:
     lv_obj_t* label_obj = nullptr;
     std::function<void()> callback;
-
     static void internal_event_handler(lv_event_t* e) {
-        Button* btn = static_cast<Button*>(lv_obj_get_user_data(lv_event_get_target(e)));
-        if (btn && btn->callback) {
-            btn->callback();
-        }
+        // Fix: Cast void* to lv_obj_t*
+        Button* btn = static_cast<Button*>(lv_obj_get_user_data((lv_obj_t*)lv_event_get_target(e)));
+        if (btn && btn->callback) btn->callback();
     }
 };
 
-// --- Dropdown Menu ---
+// --- Image Button ---
+class ImageButton : public Widget {
+   public:
+    ImageButton(Widget* parent, std::function<void()> cb = nullptr)
+        : Widget(lv_imagebutton_create(parent ? parent->get_lv_obj() : lv_scr_act())), callback(cb) {
+        lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_set_user_data(obj, this);
+        lv_obj_add_event_cb(obj, internal_event_handler, LV_EVENT_CLICKED, NULL);
+    }
+    void set_src_all(const void* src) {
+        lv_imagebutton_set_src(obj, LV_IMAGEBUTTON_STATE_RELEASED, src, NULL, NULL);
+        lv_imagebutton_set_src(obj, LV_IMAGEBUTTON_STATE_PRESSED, src, NULL, NULL);
+    }
+    void set_callback(std::function<void()> cb) { callback = cb; }
+
+   private:
+    std::function<void()> callback;
+    static void internal_event_handler(lv_event_t* e) {
+        ImageButton* btn = static_cast<ImageButton*>(lv_obj_get_user_data((lv_obj_t*)lv_event_get_target(e)));
+        if (btn && btn->callback) btn->callback();
+    }
+};
+
+// --- Dropdown ---
 class Dropdown : public Widget {
    public:
-    Dropdown(Widget* parent) : Widget(nullptr) {
-        lv_obj_t* par = parent ? parent->get_lv_obj() : lv_scr_act();
-        obj = lv_dropdown_create(par);
+    Dropdown(Widget* parent)
+        : Widget(lv_dropdown_create(parent ? parent->get_lv_obj() : lv_scr_act())) {
         set_width(LV_PCT(100));
     }
-
-    void set_options(const std::string& options) {
-        // Format: "Option 1\nOption 2\nOption 3"
-        lv_dropdown_set_options(obj, options.c_str());
-    }
-
-    void set_selected(uint16_t index) {
-        lv_dropdown_set_selected(obj, index);
-    }
-
-    int get_selected() {
-        return lv_dropdown_get_selected(obj);
-    }
-
-    // Get text of selected item
-    std::string get_selected_str() {
-        char buf[64];
-        lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
-        return std::string(buf);
-    }
+    void set_options(const std::string& opts) { lv_dropdown_set_options(obj, opts.c_str()); }
+    int get_selected() { return lv_dropdown_get_selected(obj); }
+    void set_selected(uint16_t id) { lv_dropdown_set_selected(obj, id); }
 };
 
-// --- Text Input Field ---
+// --- Progress Bar ---
+class ProgressBar : public Widget {
+   public:
+    ProgressBar(Widget* parent, int min = 0, int max = 100)
+        : Widget(lv_bar_create(parent ? parent->get_lv_obj() : lv_scr_act())) {
+        lv_bar_set_range(obj, min, max);
+        set_size(LV_PCT(100), 10);
+    }
+    void set_value(int val, bool anim = true) { lv_bar_set_value(obj, val, anim ? LV_ANIM_ON : LV_ANIM_OFF); }
+    void set_color(lv_color_t color) { lv_obj_set_style_bg_color(obj, color, LV_PART_INDICATOR); }
+};
+
+// --- Text Input ---
 class TextInput : public Widget {
    public:
-    TextInput(Widget* parent, const char* placeholder = "Type here...") : Widget(nullptr) {
-        lv_obj_t* par = parent ? parent->get_lv_obj() : lv_scr_act();
-        obj = lv_textarea_create(par);
-
+    TextInput(Widget* parent, const char* placeholder = "")
+        : Widget(lv_textarea_create(parent ? parent->get_lv_obj() : lv_scr_act())) {
         set_width(LV_PCT(100));
-        set_height(40);  // Single line height usually
+        set_height(40);
         lv_textarea_set_placeholder_text(obj, placeholder);
         lv_textarea_set_one_line(obj, true);
 
-        // Style when focused (Visual feedback for typing)
         lv_obj_set_style_border_color(obj, lv_color_hex(0x007AFF), LV_STATE_FOCUSED);
-    }
+        lv_obj_set_style_border_width(obj, 2, LV_STATE_FOCUSED);
 
-    std::string get_text() {
-        return std::string(lv_textarea_get_text(obj));
+        lv_obj_set_user_data(obj, this);
+        lv_obj_add_event_cb(obj, internal_event_handler, LV_EVENT_READY, NULL);
     }
+    void set_on_submit(std::function<void(std::string)> cb) { on_submit = cb; }
+    std::string get_text() { return std::string(lv_textarea_get_text(obj)); }
+    void set_text(const std::string& text) { lv_textarea_set_text(obj, text.c_str()); }
 
-    void set_text(const std::string& text) {
-        lv_textarea_set_text(obj, text.c_str());
-    }
-
-    // For Keypad: Add char
-    void add_char(char c) {
-        lv_textarea_add_char(obj, c);
-    }
-
-    // For Keypad: Backspace
-    void backspace() {
-        lv_textarea_del_char(obj);
+   private:
+    std::function<void(std::string)> on_submit;
+    static void internal_event_handler(lv_event_t* e) {
+        TextInput* self = static_cast<TextInput*>(lv_obj_get_user_data((lv_obj_t*)lv_event_get_target(e)));
+        if (self && self->on_submit) self->on_submit(self->get_text());
     }
 };
 
-// --- Console / Log Viewer ---
+// --- Console Log ---
 class ConsoleLog : public Widget {
    public:
-    ConsoleLog(Widget* parent) : Widget(nullptr) {
-        lv_obj_t* par = parent ? parent->get_lv_obj() : lv_scr_act();
-        obj = lv_textarea_create(par);
-
+    ConsoleLog(Widget* parent, uint32_t buffer_size = 512)
+        : Widget(lv_textarea_create(parent ? parent->get_lv_obj() : lv_scr_act())), max_len(buffer_size) {
         set_size(LV_PCT(100), LV_PCT(100));
-        lv_textarea_set_readonly(obj, true);
-        lv_textarea_set_cursor_click_pos(obj, false);  // Disable cursor
 
-        // Terminal Style
+        // FIX: Removed invalid call. Use Flags to disable editing.
+        lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+        lv_textarea_set_cursor_click_pos(obj, false);
+
         set_bg_color(lv_color_hex(0x000000));
-        lv_obj_set_style_text_color(obj, lv_color_hex(0x00FF00), 0);  // Green text
-        lv_obj_set_style_text_font(obj, &lv_font_montserrat_10, 0);   // Tiny font
-    }
+        lv_obj_set_style_text_color(obj, lv_color_hex(0x00FF00), 0);
 
+        // FIX: Use default font to be safe
+        lv_obj_set_style_text_font(obj, lv_font_get_default(), 0);
+    }
     void log(const std::string& text) {
         lv_textarea_add_text(obj, text.c_str());
         lv_textarea_add_char(obj, '\n');
+        const char* txt = lv_textarea_get_text(obj);
+        size_t len = strlen(txt);
+        if (len > max_len) {
+            lv_textarea_set_text(obj, txt + (len - max_len));
+            lv_textarea_set_cursor_pos(obj, LV_TEXTAREA_CURSOR_LAST);
+        }
     }
+    void clear_log() { lv_textarea_set_text(obj, ""); }
 
-    void clear_log() {
-        lv_textarea_set_text(obj, "");
-    }
+   private:
+    uint32_t max_len;
 };
 
-// --- Chat Message List ---
+// --- Message List ---
 class MessageList : public FlexContainer {
    public:
     MessageList(Widget* parent) : FlexContainer(parent, LV_FLEX_FLOW_COLUMN) {
         set_width(LV_PCT(100));
-        set_flex_grow(1);  // Fill space
+        set_flex_grow(1);
         set_padding(5);
         set_gap(8);
-
-        // Allow scrolling
         lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLL_ELASTIC);
-        lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_AUTO);
     }
-
     void add_message(const std::string& text, bool is_me) {
-        // 1. Create Bubble Container
-        auto bubble = add<Container>(nullptr);  // Parent is 'this' via factory
+        auto bubble = add<Container>();
         bubble->set_width(LV_SIZE_CONTENT);
-        // Max width 80% of screen
         lv_obj_set_style_max_width(bubble->get_lv_obj(), lv_pct(85), 0);
-
         bubble->set_padding(8);
-        lv_obj_set_style_radius(bubble->get_lv_obj(), 10, 0);  // Round corners
+        lv_obj_set_style_radius(bubble->get_lv_obj(), 10, 0);
+        // Important: Set Opacity on Bubble
+        bubble->set_bg_color(is_me ? lv_color_hex(0x007AFF) : lv_color_hex(0x444444));
 
-        // 2. Style based on sender
-        if (is_me) {
-            // My messages: Right aligned, Blue
-            lv_obj_align(bubble->get_lv_obj(), LV_ALIGN_TOP_RIGHT, 0, 0);  // Alignment in flex row? No, in column
-            // In a Flex Column, we use align_self or just generic object alignment?
-            // LVGL Flex Column aligns children based on cross-axis.
-            // We need to set "align-self" essentially.
+        if (is_me)
             lv_obj_set_align(bubble->get_lv_obj(), LV_ALIGN_TOP_RIGHT);
-            bubble->set_bg_color(lv_color_hex(0x007AFF));  // iOS Blue
-        } else {
-            // Their messages: Left aligned, Gray
+        else
             lv_obj_set_align(bubble->get_lv_obj(), LV_ALIGN_TOP_LEFT);
-            bubble->set_bg_color(lv_color_hex(0x444444));
-        }
 
-        // 3. Add Text Label
         auto lbl = bubble->add<Label>(text);
         lbl->set_text_color(lv_color_hex(0xFFFFFF));
-        lv_label_set_long_mode(lbl->get_lv_obj(), LV_LABEL_LONG_WRAP);  // Auto wrap text
-        lv_obj_set_width(lbl->get_lv_obj(), LV_PCT(100));               // Fill bubble
+        lbl->set_long_mode(LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(lbl->get_lv_obj(), LV_PCT(100));
 
-        // 4. Auto Scroll to Bottom
-        // We need to wait for layout update or force it
         lv_obj_update_layout(obj);
         lv_obj_scroll_to_view(bubble->get_lv_obj(), LV_ANIM_ON);
     }

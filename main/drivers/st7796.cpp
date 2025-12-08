@@ -3,7 +3,7 @@ static const char* TAG = "st7796";
 lv_display_t* ST7796Driver::disp = nullptr;
 
 static void lv_tick_task(void* arg) {
-    lv_tick_inc(2);  // Tell LVGL that 2 milliseconds have passed
+    lv_tick_inc(5);  // Tell LVGL that 2 milliseconds have passed
 }
 void start_lvgl_tick() {
     const esp_timer_create_args_t lv_tick_timer_args = {
@@ -12,7 +12,7 @@ void start_lvgl_tick() {
     esp_timer_handle_t lv_tick_timer;
     esp_timer_create(&lv_tick_timer_args, &lv_tick_timer);
     // Fire every 2ms
-    esp_timer_start_periodic(lv_tick_timer, 2000);
+    esp_timer_start_periodic(lv_tick_timer, 5000);
 }
 
 bool ST7796Driver::begin() {
@@ -58,46 +58,8 @@ bool ST7796Driver::begin() {
     // init backlight using LEDC
     init_backlight();
     init_lvgl_display();
-    start_lvgl_tick();
-    lv_obj_t* scr = lv_scr_act();
-    // 2. Set its background color to Black
-    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_hex(0xFF0000), LV_PART_MAIN);
-
-    // --- Circle 1 (Left Half) ---
-    lv_obj_t* c1 = lv_obj_create(scr);
-
-    // Size: Half the width (420/2 = 210).
-    // This fits within the 222 height comfortably.
-    lv_obj_set_size(c1, 210, 210);
-
-    // Make it a circle
-    lv_obj_set_style_radius(c1, LV_RADIUS_CIRCLE, 0);
-
-    // Color: White, Remove Border
-    lv_obj_set_style_bg_color(c1, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_width(c1, 0, 0);
-
-    // Position: Left Middle
-    lv_obj_align(c1, LV_ALIGN_LEFT_MID, 0, 0);
-
-    // Remove scrollbars (cleaner look)
-    lv_obj_remove_flag(c1, LV_OBJ_FLAG_SCROLLABLE);
-
-    // --- Circle 2 (Right Half) ---
-    lv_obj_t* c2 = lv_obj_create(scr);
-
-    lv_obj_set_size(c2, 210, 210);
-    lv_obj_set_style_radius(c2, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(c2, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_width(c2, 0, 0);
-
-    // Position: Right Middle
-    lv_obj_align(c2, LV_ALIGN_RIGHT_MID, 0, 0);
-
-    lv_obj_remove_flag(c2, LV_OBJ_FLAG_SCROLLABLE);
-
-    // 3. Force an immediate redraw so it appears instantly
-    lv_refr_now(NULL);
+    // start_lvgl_tick();
+    lv_timer_handler();
     return true;
 }
 
@@ -184,6 +146,21 @@ void ST7796Driver::init_lvgl_display() {
     // We need 'notify_lvgl_flush_ready' to know which 'disp' to notify.
     // (This part depends on how your specific esp_lcd IO driver stores context,
     // often simpler to use a global variable for 'disp' if this gets too complex).
+    lv_obj_t* c1 = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(c1, 20, 20);
+    lv_obj_set_style_radius(c1, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(c1, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_width(c1, 0, 0);
+    lv_obj_align(c1, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_remove_flag(c1, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* c2 = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(c2, 20, 20);
+    lv_obj_set_style_radius(c1, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(c1, lv_color_hex(0x0FFF0F), 0);
+    lv_obj_set_style_border_width(c1, 0, 0);
+    lv_obj_align(c1, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_remove_flag(c1, LV_OBJ_FLAG_SCROLLABLE);
 }
 
 void ST7796Driver::init_backlight() {

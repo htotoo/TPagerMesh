@@ -31,6 +31,10 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "drivers/st7796.hpp"
 #include "drivers/keypad_irq.hpp"
 #include "esp_timer.h"
+#include "app_ui/app_main.hpp"
+
+App_Main app_main_ui;
+
 ST7796Driver lcd;
 XPowersPPM PPM;
 KeypadDriver keypad;
@@ -320,6 +324,8 @@ void app_main(void) {
         }
     });
 
+    app_main_ui.init();
+
     std::string short_name = "Info";                                                                     // short name
     std::string long_name = "Hungarian Info Node";                                                       // long name
     MtCompactHelpers::NodeInfoBuilder(mtCompact.getMyNodeInfo(), 0xabbababa, short_name, long_name, 1);  // random nodeinfo
@@ -336,14 +342,14 @@ void app_main(void) {
     rotary_encoder_event_t e;
     while (1) {
         timer++;
-        if (timer % (30 * 60 * 10) == 0) {
-            mtCompact.sendMyNodeInfo();
+        if (timer % (30 * 60 * 100) == 0) {
+            // mtCompact.sendMyNodeInfo();
         }
         if (mtCompact.nodeinfo_db.needsSave()) {
-            mtCompact.saveNodeDb();
+            // mtCompact.saveNodeDb();
             mtCompact.nodeinfo_db.clearChangedFlag();
         }
-        if (xQueueReceive(event_queue_re, &e, 0)) {
+        /*if (xQueueReceive(event_queue_re, &e, pdMS_TO_TICKS(10))) {
             switch (e.type) {
                 case RE_ET_BTN_PRESSED:
                     ESP_LOGI(TAG, "Button pressed");
@@ -367,8 +373,11 @@ void app_main(void) {
                 default:
                     break;
             }
-        }
+        }*/
+        lv_tick_inc(10);
         lv_timer_handler();
-        vTaskDelay(pdMS_TO_TICKS(100));  // wait 100 milliseconds
+        ESP_LOGI(TAG, "..");
+        lv_refr_now(NULL);
+        vTaskDelay(pdMS_TO_TICKS(1000));  // wait 100 milliseconds
     }
 }
