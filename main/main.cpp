@@ -334,7 +334,6 @@ void app_main(void) {
     mtCompact.sendMyNodeInfo();
 
     rotary_encoder_event_t e;
-    int32_t rot_val = 0;
     while (1) {
         timer++;
         if (timer % (30 * 60 * 10) == 0) {

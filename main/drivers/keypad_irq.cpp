@@ -1,22 +1,85 @@
 #include "keypad_irq.hpp"
 #include "esp_log.h"
 
-static const char* TAG = "KeypadDebug";
+static const char* TAG = "Keypad";
 
+// Static Member Init
 lv_indev_t* KeypadDriver::indev_keypad = nullptr;
 SemaphoreHandle_t KeypadDriver::irq_sem = NULL;
 QueueHandle_t KeypadDriver::key_queue = NULL;
+uint8_t KeypadDriver::key_stage = 0;
+uint32_t KeypadDriver::current_held_key = 0;
+uint32_t KeypadDriver::last_sent_key = 0;
 
 // Registers
 #define REG_CFG 0x01
 #define REG_INT_STAT 0x02
-#define REG_KEY_LCK_EC 0x03
 #define REG_KEY_EVENT_A 0x04
 #define REG_KP_GPIO1 0x1D
 #define REG_KP_GPIO2 0x1E
 #define REG_KP_GPIO3 0x1F
 
-// ISR: Keep minimal
+// Hardware IDs
+#define ID_FN 21
+#define ID_Z 22
+#define ID_SHIFT 29
+#define ID_BACKSPACE 30
+#define ID_SPACE 31
+
+// LVGL Keys
+#define KEY_SELECT LV_KEY_ENTER
+#define KEY_TAB LV_KEY_NEXT
+#define KEY_BSP LV_KEY_BACKSPACE
+#define KEY_ESC LV_KEY_ESC
+#define KEY_BL 0
+
+// --- 3-Stage Map ---
+static const uint32_t TLoraPagerTapMap[KEYMAP_ROWS][3] = {
+    // Row 1
+    {'q', 'Q', '1'},  // 0
+    {'w', 'W', '2'},  // 1
+    {'e', 'E', '3'},
+    {'r', 'R', '4'},
+    {'t', 'T', '5'},
+    {'y', 'Y', '6'},
+    {'u', 'U', '7'},
+    {'i', 'I', '8'},
+    {'o', 'O', '9'},
+    {'p', 'P', '0'},  // 9
+
+    // Row 2
+    {'a', 'A', '*'},  // 10
+    {'s', 'S', '/'},
+    {'d', 'D', '+'},
+    {'f', 'F', '-'},
+    {'g', 'G', '='},
+    {'h', 'H', ':'},
+    {'j', 'J', '\''},
+    {'k', 'K', '"'},
+    {'l', 'L', '@'},                    // 18
+    {KEY_SELECT, KEY_SELECT, KEY_TAB},  // 19 (Enter)
+
+    // Gap / FN
+    {0, 0, 0},  // 20
+
+    // Row 3
+    {'z', 'Z', '_'},  // 21 (Mapped from ID 22)
+    {'x', 'X', '$'},
+    {'c', 'C', ';'},
+    {'v', 'V', '?'},
+    {'b', 'B', '!'},
+    {'n', 'N', ','},
+    {'m', 'M', '.'},  // 27
+
+    // Gap
+    {0, 0, 0},  // 28
+    {0, 0, 0},  // 29 (Shift Placeholder)
+
+    // Bottom
+    {KEY_BSP, KEY_BSP, KEY_ESC},  // 30
+    {' ', ' ', KEY_BL}            // 31
+};
+
 void IRAM_ATTR KeypadDriver::isr_handler(void* arg) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     xSemaphoreGiveFromISR(irq_sem, &xHigherPriorityTaskWoken);
@@ -25,18 +88,11 @@ void IRAM_ATTR KeypadDriver::isr_handler(void* arg) {
 
 void KeypadDriver::begin() {
     ESP_LOGI(TAG, "Starting Keypad Init...");
-
-    // 1. Verify I2C Connection
-    scan_i2c_bus();
-
-    // 2. Create OS resources
     irq_sem = xSemaphoreCreateBinary();
     key_queue = xQueueCreate(20, sizeof(uint32_t));
 
-    // 3. Configure Chip Registers FIRST
-    // (We do this before GPIO init to ensure the line is High)
-
-    // Enable Matrix
+    // 1. Configure Chip
+    // Enable Matrix (All Rows/Cols)
     write_byte(REG_KP_GPIO1, 0xFF);
     write_byte(REG_KP_GPIO2, 0xFF);
     write_byte(REG_KP_GPIO3, 0x03);
@@ -45,24 +101,18 @@ void KeypadDriver::begin() {
     uint8_t cfg = read_byte(REG_CFG);
     write_byte(REG_CFG, cfg | 0x01);
 
-    // --- CRITICAL FIX: DRAIN THE SWAMP ---
-    // Read events until the chip returns 0. This empties the FIFO.
-    ESP_LOGW(TAG, "Draining stuck events...");
+    // Drain Stuck Events
+    ESP_LOGI(TAG, "Draining existing events...");
     uint8_t event;
     int safety = 0;
     do {
         event = read_byte(REG_KEY_EVENT_A);
-        if (event != 0) {
-            ESP_LOGW(TAG, " -> Drained stuck event: 0x%02X", event);
-        }
+        if (event != 0) ESP_LOGI(TAG, " -> Drained: %d", event);
         safety++;
     } while (event != 0 && safety < 20);
-
-    // Clear Interrupt Flag explicitly
     write_byte(REG_INT_STAT, 0xFF);
-    // -------------------------------------
 
-    // 4. Configure GPIO
+    // 2. Configure GPIO
     gpio_config_t io_conf = {};
     io_conf.intr_type = GPIO_INTR_NEGEDGE;
     io_conf.pin_bit_mask = (1ULL << KEYPAD_IRQ_PIN);
@@ -70,15 +120,11 @@ void KeypadDriver::begin() {
     io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
     gpio_config(&io_conf);
 
-    // 5. CHECK PIN STATE
-    // The pin MUST be 1 (High) now. If it is 0, the wiring is wrong or chip is still stuck.
+    // DEBUG: Check if pin is HIGH (Ready) or LOW (Stuck)
     int pin_state = gpio_get_level(KEYPAD_IRQ_PIN);
+    ESP_LOGI(TAG, "IRQ Pin Initial State: %d (Should be 1)", pin_state);
     if (pin_state == 0) {
-        ESP_LOGE(TAG, "CRITICAL ERROR: IRQ Pin is LOW! Interrupts will not work.");
-        ESP_LOGE(TAG, "1. Check wiring (Is it really GPIO %d?)", KEYPAD_IRQ_PIN);
-        ESP_LOGE(TAG, "2. Check INT_STAT again: 0x%02X", read_byte(REG_INT_STAT));
-    } else {
-        ESP_LOGI(TAG, "IRQ Pin state is HIGH (Good). Ready for trigger.");
+        ESP_LOGE(TAG, "WARNING: IRQ Pin is LOW! Interrupts may fail. Check INT_STAT: 0x%02X", read_byte(REG_INT_STAT));
     }
 
     gpio_install_isr_service(0);
@@ -86,124 +132,155 @@ void KeypadDriver::begin() {
 
     xTaskCreate(handle_interrupt_task, "keypad_task", 4096, NULL, 10, NULL);
 
-    // Register LVGL
     indev_keypad = lv_indev_create();
     lv_indev_set_type(indev_keypad, LV_INDEV_TYPE_KEYPAD);
     lv_indev_set_read_cb(indev_keypad, read_cb);
 
-    ESP_LOGI(TAG, "Keypad Init Done.");
-}
+    // Configure Long Press (1.5 Seconds)
+    lv_indev_set_long_press_time(indev_keypad, 1500);
 
-void KeypadDriver::scan_i2c_bus() {
-    ESP_LOGI(TAG, "Scanning I2C Bus for Keypad (0x34)...");
-    uint8_t dummy;
-    esp_err_t err = i2c_master_write_read_device(I2C_PORT, TCA8418_ADDR, &dummy, 0, &dummy, 0, pdMS_TO_TICKS(50));
-    if (err == ESP_OK) {
-        ESP_LOGI(TAG, "SUCCESS: Device found at 0x34!");
-    } else {
-        ESP_LOGE(TAG, "FAILURE: No device at 0x34. Check wiring/power! Err: %s", esp_err_to_name(err));
-        // Scan full bus to help user find it
-        for (int i = 1; i < 127; i++) {
-            if (i2c_master_write_read_device(I2C_PORT, i, &dummy, 0, &dummy, 0, pdMS_TO_TICKS(10)) == ESP_OK) {
-                ESP_LOGW(TAG, "Found unknown device at 0x%02X", i);
-            }
-        }
-    }
-}
-
-void KeypadDriver::dump_registers() {
-    ESP_LOGI(TAG, "--- Register Dump ---");
-    ESP_LOGI(TAG, "CFG (0x01): 0x%02X", read_byte(REG_CFG));
-    ESP_LOGI(TAG, "INT_STAT (0x02): 0x%02X", read_byte(REG_INT_STAT));
-    ESP_LOGI(TAG, "KEY_EVENT_A (0x04): 0x%02X", read_byte(REG_KEY_EVENT_A));
-    ESP_LOGI(TAG, "GPIO_DAT_STAT1 (0x11): 0x%02X", read_byte(0x11));  // Check if any key is physically stuck
+    ESP_LOGI(TAG, "Keypad Ready.");
 }
 
 void KeypadDriver::handle_interrupt_task(void* arg) {
     while (1) {
         if (xSemaphoreTake(irq_sem, portMAX_DELAY)) {
-            // Log that ISR happened
-            ESP_LOGI(TAG, "IRQ Triggered! Reading status...");
+            // ESP_LOGI(TAG, "IRQ Fired"); // Uncomment if you suspect ISR isn't running
 
             uint8_t status = read_byte(REG_INT_STAT);
-            ESP_LOGI(TAG, "INT_STAT: 0x%02X", status);
-
-            if (status & 0x01) {  // Key Event
+            if (status & 0x01) {
                 uint8_t key_event = read_byte(REG_KEY_EVENT_A);
-                int safety_limit = 20;  // Prevent infinite loops
 
-                while (key_event != 0 && safety_limit-- > 0) {
-                    bool is_press = (key_event & 0x80) == 0;
+                while (key_event != 0) {
+                    // Logic: Bit 7 is 1 for PRESS
+                    bool is_press = (key_event & 0x80) != 0;
                     uint8_t key_id = key_event & 0x7F;
-
-                    ESP_LOGI(TAG, "Event: ID=%d, Press=%d", key_id, is_press);
 
                     if (is_press) {
                         uint32_t key_code = map_key(key_id);
+
+                        // Action 1: Queue for Typing
                         if (key_code != 0) {
                             xQueueSend(key_queue, &key_code, 0);
-                            ESP_LOGI(TAG, " -> Mapped to: '%c' (%d)", (char)key_code, (int)key_code);
+                            ESP_LOGI(TAG, "PRESS: '%c' (ID=%d)", (char)key_code, key_id);
                         } else {
-                            ESP_LOGW(TAG, " -> UNMAPPED KEY ID: %d", key_id);
+                            // If key_code is 0 (e.g. FN/Shift), we still log it
+                            ESP_LOGI(TAG, "MODIFIER/UNMAPPED (ID=%d)", key_id);
+                        }
+
+                        // Action 2: Track "Held" state for Long Press
+                        current_held_key = key_code;
+
+                    } else {
+                        // Key Released
+                        ESP_LOGI(TAG, "RELEASE (ID=%d)", key_id);
+                        if (current_held_key != 0) {  // Only clear if we were tracking something
+                            current_held_key = 0;
                         }
                     }
+
+                    // Read next event
                     key_event = read_byte(REG_KEY_EVENT_A);
                 }
-
-                // Clear Interrupt
-                write_byte(REG_INT_STAT, 0xFF);  // Write 1s to clear all flags
-                ESP_LOGI(TAG, "Interrupt Cleared. INT Pin should go HIGH.");
-            } else {
-                ESP_LOGW(TAG, "IRQ fired but INT_STAT bit 0 was not set!");
-                // Clear anyway to be safe
                 write_byte(REG_INT_STAT, 0xFF);
             }
         }
     }
 }
 
+// Map Hardware ID -> Array Index
+int KeypadDriver::get_key_index(uint8_t key_id) {
+    // Row 1: Q(1) .. P(10)
+    if (key_id >= 1 && key_id <= 10) return key_id - 1;
+
+    // Row 2: A(11) .. L(19)
+    if (key_id >= 11 && key_id <= 19) return key_id - 1;
+
+    // Enter (20)
+    if (key_id == 20) return 19;
+
+    // Row 3: User Map (Z=22... M=28)
+    if (key_id >= 22 && key_id <= 28) return key_id - 1;  // Maps 22->21 (Z)
+
+    // Special
+    if (key_id == ID_BACKSPACE) return 30;  // BSP
+    if (key_id == ID_SPACE) return 31;      // Space
+
+    return -1;
+}
+
+uint32_t KeypadDriver::map_key(uint8_t key_id) {
+    // 1. Modifiers
+    if (key_id == ID_SHIFT) {
+        // Toggle Lower(0) <-> Upper(1)
+        if (key_stage == 1)
+            key_stage = 0;
+        else
+            key_stage = 1;
+        ESP_LOGI(TAG, "Stage Changed: %s", key_stage ? "UPPER" : "lower");
+        return 0;
+    }
+
+    if (key_id == ID_FN) {
+        // Toggle Num(2) <-> Lower(0)
+        if (key_stage == 2)
+            key_stage = 0;
+        else
+            key_stage = 2;
+        ESP_LOGI(TAG, "Stage Changed: %s", (key_stage == 2) ? "NUMERIC" : "lower");
+        return 0;
+    }
+
+    // 2. Standard Map
+    int idx = get_key_index(key_id);
+    if (idx < 0 || idx >= KEYMAP_ROWS) return 0;
+
+    uint32_t code = TLoraPagerTapMap[idx][key_stage];
+
+    // Fallback to lowercase if current stage is empty
+    if (code == 0 && key_stage != 0) {
+        code = TLoraPagerTapMap[idx][0];
+    }
+    return code;
+}
+
 void KeypadDriver::read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     uint32_t key_out;
+
+    // 1. Check Queue (Fast Typing)
     if (xQueueReceive(key_queue, &key_out, 0) == pdTRUE) {
         data->state = LV_INDEV_STATE_PRESSED;
         data->key = key_out;
+        last_sent_key = key_out;
+
+        // If queue has more, read again immediately
         if (uxQueueMessagesWaiting(key_queue) > 0) {
             data->continue_reading = true;
         } else {
             data->continue_reading = false;
         }
-    } else {
+    }
+    // 2. Check Held State (Long Press Logic)
+    else if (current_held_key != 0 && current_held_key == last_sent_key) {
+        // User is holding the key. Keep reporting PRESSED.
+        data->state = LV_INDEV_STATE_PRESSED;
+        data->key = last_sent_key;
+        data->continue_reading = false;
+    }
+    // 3. Release
+    else {
         data->state = LV_INDEV_STATE_RELEASED;
         data->continue_reading = false;
     }
 }
 
-// Low-level with Error Checking
 void KeypadDriver::write_byte(uint8_t reg, uint8_t val) {
     uint8_t data[] = {reg, val};
-    esp_err_t err = i2c_master_write_to_device(I2C_PORT, TCA8418_ADDR, data, 2, pdMS_TO_TICKS(50));
-    if (err != ESP_OK) ESP_LOGE(TAG, "I2C Write Failed (Reg 0x%02X): %s", reg, esp_err_to_name(err));
+    i2c_master_write_to_device(I2C_PORT, TCA8418_ADDR, data, 2, pdMS_TO_TICKS(50));
 }
 
 uint8_t KeypadDriver::read_byte(uint8_t reg) {
     uint8_t val = 0;
-    esp_err_t err = i2c_master_write_read_device(I2C_PORT, TCA8418_ADDR, &reg, 1, &val, 1, pdMS_TO_TICKS(50));
-    if (err != ESP_OK) ESP_LOGE(TAG, "I2C Read Failed (Reg 0x%02X): %s", reg, esp_err_to_name(err));
+    i2c_master_write_read_device(I2C_PORT, TCA8418_ADDR, &reg, 1, &val, 1, pdMS_TO_TICKS(50));
     return val;
-}
-
-uint32_t KeypadDriver::map_key(uint8_t key_id) {
-    // Basic Map - Monitor logs to find your specific IDs
-    switch (key_id) {
-        case 50:
-            return LV_KEY_ENTER;
-        case 1:
-            return 'q';
-        case 11:
-            return 'w';
-        case 21:
-            return 'e';
-        default:
-            return 0;
-    }
 }
