@@ -41,7 +41,7 @@ bool ST7796Driver::begin() {
     panel_handle = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = -1,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
         .bits_per_pixel = 16,
     };
     // Create LCD panel handle for ST7796, with the SPI IO device handle
@@ -96,16 +96,10 @@ bool ST7796Driver::notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io, e
 }
 
 void ST7796Driver::my_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
-    // Retrieve your esp_lcd handle from the user_data (we'll set this later)
     esp_lcd_panel_handle_t panel_handle = (esp_lcd_panel_handle_t)lv_display_get_user_data(disp);
-    // Send pixels to the display driver
-    // x1, y1, x2, y2, raw_pixel_data
-    int x_start = area->x1;
-    int x_end = area->x2 + 1;  // esp_lcd uses exclusive end coordinate
-    int y_start = area->y1;
-    int y_end = area->y2 + 1;
-
-    esp_lcd_panel_draw_bitmap(panel_handle, x_start, y_start, x_end, y_end, px_map);
+    uint32_t pixel_count = lv_area_get_size(area);
+    lv_draw_sw_rgb565_swap(px_map, pixel_count);
+    esp_lcd_panel_draw_bitmap(panel_handle, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
 }
 
 void ST7796Driver::init_lvgl_display() {
@@ -127,7 +121,7 @@ void ST7796Driver::init_lvgl_display() {
     uint32_t w = LCD_V_RES;
     uint32_t h = LCD_H_RES;
     disp = lv_display_create(w, h);
-
+    lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     // 4. Create Draw Buffers
     // LVGL 9 needs a buffer to render into. 1/10th of screen is standard.
     // We use heap_caps_malloc to put it in DMA-capable RAM (Internal or PSRAM)

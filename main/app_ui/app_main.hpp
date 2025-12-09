@@ -23,18 +23,19 @@ class App_Main {
         // 3. Status Bar (Top, 18px, Dark Gray)
         status_bar = root_col->add<FlexContainer>(LV_FLEX_FLOW_ROW);
         status_bar->set_size(LV_PCT(100), 18);
-        status_bar->set_bg_color(lv_color_hex(0x181818));
+        status_bar->set_bg_color(lv_color_hex(0x000000));
 
         status_bar->set_align(LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         status_bar->set_padding(4);
 
         // Title
         auto title = status_bar->add<Label>("TMesh");
-        title->set_text_color(lv_color_hex(0xFFFFFF));  // Accent Blue
+        title->set_text_color(lv_color_hex(0x000000));  // Accent Blue
+        title->set_bg_color(lv_color_hex(0x000000));
 
         // Clock
         auto time_lbl = status_bar->add<Label>("12:00");
-        time_lbl->set_text_color(lv_color_hex(0xFFFFFF));
+        time_lbl->set_text_color(lv_color_hex(0x0000FF));
 
         // 4. Body Row (Holds Menu + Content)
         body_row = root_col->add<FlexContainer>(LV_FLEX_FLOW_ROW);
