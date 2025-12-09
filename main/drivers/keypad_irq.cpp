@@ -188,7 +188,7 @@ int KeypadDriver::get_key_index(uint8_t key_id) {
 uint32_t KeypadDriver::map_key(uint8_t key_id) {
     // 1. Group Switcher (FN Key - ID 21)
     if (key_id == ID_FN) {
-        return LV_KEY_NEXT;  // Tab to switch groups
+        return KEY_SWITCH_FOCUS;  // Tab to switch groups
     }
 
     // 2. Mode Switcher (SHIFT Key - ID 29)

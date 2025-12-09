@@ -41,7 +41,7 @@ bool ST7796Driver::begin() {
     panel_handle = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = -1,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
         .bits_per_pixel = 16,
     };
     // Create LCD panel handle for ST7796, with the SPI IO device handle
@@ -50,7 +50,7 @@ bool ST7796Driver::begin() {
 
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
 
-    esp_lcd_panel_invert_color(panel_handle, true);
+    esp_lcd_panel_invert_color(panel_handle, false);
     esp_lcd_panel_swap_xy(panel_handle, true);
     esp_lcd_panel_mirror(panel_handle, true, true);
     esp_lcd_panel_set_gap(panel_handle, 0, 49);
@@ -132,7 +132,7 @@ void ST7796Driver::init_lvgl_display() {
     // LVGL 9 needs a buffer to render into. 1/10th of screen is standard.
     // We use heap_caps_malloc to put it in DMA-capable RAM (Internal or PSRAM)
     size_t buf_size = w * LCD_BUFFER_LINES * sizeof(uint16_t);  // 20 lines high
-    void* buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
+    void* buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     void* buf2 = NULL;  // Set this to a second buffer for double-buffering (smoother animation)
 
     // 5. Configure the Display

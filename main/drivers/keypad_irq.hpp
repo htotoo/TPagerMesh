@@ -12,6 +12,8 @@
 #define I2C_PORT I2C_NUM_0
 #define KEYPAD_IRQ_PIN GPIO_NUM_6
 
+#define KEY_SWITCH_FOCUS 0x80
+
 // Map Definitions
 #define KEYMAP_ROWS 32
 #define KEYMAP_COLS 3
