@@ -176,10 +176,6 @@ void encoder_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
 void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
 
-    // LCD init
-    lcd.begin();
-    lcd.setBrightness(100);  // this also turns on the display
-
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_ap();
@@ -219,9 +215,6 @@ void app_main(void) {
     re.pin_b = (gpio_num_t)RE_B_GPIO;
     re.pin_btn = (gpio_num_t)RE_BTN_GPIO;
     ESP_ERROR_CHECK(rotary_encoder_add(&re));
-    lv_indev_t* encoder_indev = lv_indev_create();
-    lv_indev_set_type(encoder_indev, LV_INDEV_TYPE_ENCODER);
-    lv_indev_set_read_cb(encoder_indev, encoder_read_cb);
 
     // button init
     btn_power.gpio = (gpio_num_t)0;
@@ -324,8 +317,6 @@ void app_main(void) {
         }
     });
 
-    app_main_ui.init();
-
     std::string short_name = "Info";                                                                     // short name
     std::string long_name = "Hungarian Info Node";                                                       // long name
     MtCompactHelpers::NodeInfoBuilder(mtCompact.getMyNodeInfo(), 0xabbababa, short_name, long_name, 1);  // random nodeinfo
@@ -339,17 +330,28 @@ void app_main(void) {
     mtCompact.sendMyNodeInfo();
     mtCompact.sendMyNodeInfo();
 
+    // LCD init
+    lcd.begin();
+    lcd.setBrightness(100);  // this also turns on the display
+
     rotary_encoder_event_t e;
+    lv_indev_t* encoder_indev = lv_indev_create();
+    lv_indev_set_type(encoder_indev, LV_INDEV_TYPE_ENCODER);
+    lv_indev_set_read_cb(encoder_indev, encoder_read_cb);
+
+    keypad.register_lvgl();
+    app_main_ui.init(encoder_indev);
+
     while (1) {
         timer++;
         if (timer % (30 * 60 * 100) == 0) {
-            // mtCompact.sendMyNodeInfo();
+            mtCompact.sendMyNodeInfo();
         }
         if (mtCompact.nodeinfo_db.needsSave()) {
             // mtCompact.saveNodeDb();
             mtCompact.nodeinfo_db.clearChangedFlag();
         }
-        /*if (xQueueReceive(event_queue_re, &e, pdMS_TO_TICKS(10))) {
+        if (xQueueReceive(event_queue_re, &e, pdMS_TO_TICKS(0))) {
             switch (e.type) {
                 case RE_ET_BTN_PRESSED:
                     ESP_LOGI(TAG, "Button pressed");
@@ -373,11 +375,10 @@ void app_main(void) {
                 default:
                     break;
             }
-        }*/
+        }
         lv_tick_inc(10);
         lv_timer_handler();
-        ESP_LOGI(TAG, "..");
-        lv_refr_now(NULL);
-        vTaskDelay(pdMS_TO_TICKS(1000));  // wait 100 milliseconds
+        // ESP_LOGI(TAG, ".");
+        vTaskDelay(pdMS_TO_TICKS(10));  // wait 10 milliseconds
     }
 }
