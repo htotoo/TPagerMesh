@@ -41,7 +41,7 @@ bool ST7796Driver::begin() {
     panel_handle = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = -1,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
         .bits_per_pixel = 16,
     };
     // Create LCD panel handle for ST7796, with the SPI IO device handle
@@ -50,9 +50,9 @@ bool ST7796Driver::begin() {
 
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
 
-    esp_lcd_panel_invert_color(panel_handle, true);
+    esp_lcd_panel_invert_color(panel_handle, false);
     esp_lcd_panel_swap_xy(panel_handle, true);
-    esp_lcd_panel_mirror(panel_handle, false, false);
+    esp_lcd_panel_mirror(panel_handle, true, true);
     esp_lcd_panel_set_gap(panel_handle, 0, 49);
     esp_lcd_panel_disp_on_off(panel_handle, true);
     // init backlight using LEDC
@@ -132,7 +132,7 @@ void ST7796Driver::init_lvgl_display() {
     // LVGL 9 needs a buffer to render into. 1/10th of screen is standard.
     // We use heap_caps_malloc to put it in DMA-capable RAM (Internal or PSRAM)
     size_t buf_size = w * LCD_BUFFER_LINES * sizeof(uint16_t);  // 20 lines high
-    void* buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
+    void* buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     void* buf2 = NULL;  // Set this to a second buffer for double-buffering (smoother animation)
 
     // 5. Configure the Display
@@ -151,16 +151,16 @@ void ST7796Driver::init_lvgl_display() {
     lv_obj_set_style_radius(c1, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(c1, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_border_width(c1, 0, 0);
-    lv_obj_align(c1, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_align(c1, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_remove_flag(c1, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* c2 = lv_obj_create(lv_scr_act());
     lv_obj_set_size(c2, 20, 20);
-    lv_obj_set_style_radius(c1, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(c1, lv_color_hex(0x0FFF0F), 0);
-    lv_obj_set_style_border_width(c1, 0, 0);
-    lv_obj_align(c1, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_remove_flag(c1, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(c2, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(c2, lv_color_hex(0x0FFF0F), 0);
+    lv_obj_set_style_border_width(c2, 0, 0);
+    lv_obj_align(c2, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_remove_flag(c2, LV_OBJ_FLAG_SCROLLABLE);
 }
 
 void ST7796Driver::init_backlight() {

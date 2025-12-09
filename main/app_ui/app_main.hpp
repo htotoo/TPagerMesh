@@ -1,118 +1,187 @@
 #include "ui_elements/ui_widget.hpp"
+#include "drivers/keypad_irq.hpp"
 
 class App_Main {
    public:
     App_Main() {}
     ~App_Main() {}
 
-    void init() {
+    void init(lv_indev_t* enc_indev) {
+        encoder_indev = enc_indev;
         ESP_LOGI("UI", "Initializing UI...");
 
-        /* // 1. Create Groups
-         group_menu = std::make_unique<Group>();
-         group_app = std::make_unique<Group>();
+        // 1. Create Groups
+        group_menu = std::make_unique<Group>();
+        group_app = std::make_unique<Group>();
 
-         // 2. Root Container (Red background for debugging!)
-         root_col = std::make_unique<FlexContainer>(nullptr, LV_FLEX_FLOW_COLUMN);
-         root_col->set_size(LV_PCT(100), LV_PCT(100));
-         root_col->set_bg_color(lv_color_hex(0xFF0000));  // RED DEBUG
+        // 2. Root Container (Clean Dark Background)
+        root_col = std::make_unique<FlexContainer>(nullptr, LV_FLEX_FLOW_COLUMN);
+        root_col->set_size(LV_PCT(100), LV_PCT(100));
+        root_col->set_bg_color(lv_color_hex(0x000000));
+        root_col->set_gap(0);
 
-         // 3. Status Bar
-         status_bar = root_col->add<FlexContainer>(LV_FLEX_FLOW_ROW);
-         status_bar->set_size(LV_PCT(100), 20);
-         status_bar->set_bg_color(lv_color_hex(0x202020));  // Dark Gray
+        // 3. Status Bar (Top, 18px, Dark Gray)
+        status_bar = root_col->add<FlexContainer>(LV_FLEX_FLOW_ROW);
+        status_bar->set_size(LV_PCT(100), 18);
+        status_bar->set_bg_color(lv_color_hex(0x181818));
+        status_bar->set_align(LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        status_bar->set_padding(4);
 
-         auto time_lbl = status_bar->add<Label>("12:00");
-         time_lbl->set_text_color(lv_color_hex(0xFFFFFF));
+        // Title
+        auto title = status_bar->add<Label>("TMesh");
+        title->set_text_color(lv_color_hex(0x007AFF));  // Accent Blue
 
-         // 4. Body Row
-         body_row = root_col->add<FlexContainer>(LV_FLEX_FLOW_ROW);
-         body_row->set_width(LV_PCT(100));
-         body_row->set_flex_grow(1);
+        // Clock
+        auto time_lbl = status_bar->add<Label>("12:00");
+        time_lbl->set_text_color(lv_color_hex(0xAAAAAA));
 
-         // 5. Side Menu
-         side_menu = body_row->add<FlexContainer>(LV_FLEX_FLOW_COLUMN);
-         side_menu->set_width(30);
-         side_menu->set_height(LV_PCT(100));
-         side_menu->set_bg_color(lv_color_hex(0x404040));  // Lighter Gray
-         side_menu->set_default_group(group_menu.get());
+        // 4. Body Row (Holds Menu + Content)
+        body_row = root_col->add<FlexContainer>(LV_FLEX_FLOW_ROW);
+        body_row->set_width(LV_PCT(100));
+        body_row->set_flex_grow(1);
+        body_row->set_gap(1);  // 1px separator line effect via background
 
-         // 6. Content Area
-         content_area = body_row->add<FlexContainer>(LV_FLEX_FLOW_COLUMN);
-         content_area->set_height(LV_PCT(100));
-         content_area->set_flex_grow(1);
-         content_area->set_bg_color(lv_color_hex(0x000000));  // Black
-         content_area->set_default_group(group_app.get());
+        // 5. Side Menu (Left, 32px)
+        side_menu = body_row->add<FlexContainer>(LV_FLEX_FLOW_COLUMN);
+        side_menu->set_width(32);
+        side_menu->set_height(LV_PCT(100));
+        side_menu->set_bg_color(lv_color_hex(0x222222));
+        side_menu->set_padding(2);
+        side_menu->set_gap(6);
+        side_menu->set_default_group(group_menu.get());
 
-         // 7. Populate
-         build_menu();*/
+        // 6. Content Area (Right, fills rest)
+        content_area = body_row->add<FlexContainer>(LV_FLEX_FLOW_COLUMN);
+        content_area->set_height(LV_PCT(100));
+        content_area->set_flex_grow(1);
+        content_area->set_bg_color(lv_color_hex(0x000000));
+        content_area->set_default_group(group_app.get());
 
-        lv_obj_t* scr = lv_scr_act();
-        if (scr == nullptr) {
-            ESP_LOGE("UI", "Failed to get active screen!");
-            return;
-        }
-        // 2. Set its background color to Black
-        lv_obj_set_style_bg_color(lv_scr_act(), lv_color_hex(0xFFFF00), LV_PART_MAIN);
+        // 7. Start App
+        build_menu();
+        load_messaging_app();
 
-        // --- Circle 1 (Left Half) ---
-        lv_obj_t* c1 = lv_obj_create(scr);
-
-        // Size: Half the width (420/2 = 210).
-        // This fits within the 222 height comfortably.
-        lv_obj_set_size(c1, 210, 210);
-
-        // Make it a circle
-        lv_obj_set_style_radius(c1, LV_RADIUS_CIRCLE, 0);
-
-        // Color: White, Remove Border
-        lv_obj_set_style_bg_color(c1, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_border_width(c1, 0, 0);
-
-        // Position: Left Middle
-        lv_obj_align(c1, LV_ALIGN_LEFT_MID, 0, 0);
-
-        // Remove scrollbars (cleaner look)
-        lv_obj_remove_flag(c1, LV_OBJ_FLAG_SCROLLABLE);
-
-        // --- Circle 2 (Right Half) ---
-        lv_obj_t* c2 = lv_obj_create(scr);
-
-        lv_obj_set_size(c2, 210, 210);
-        lv_obj_set_style_radius(c2, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(c2, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_set_style_border_width(c2, 0, 0);
-
-        // Position: Right Middle
-        lv_obj_align(c2, LV_ALIGN_RIGHT_MID, 0, 0);
-
-        lv_obj_remove_flag(c2, LV_OBJ_FLAG_SCROLLABLE);
-
-        // 3. Force an immediate redraw so it appears instantly
-        // lv_refr_now(NULL);
+        // 8. Global Key Listener (Switch Groups)
+        lv_indev_add_event_cb(KeypadDriver::get_indev(), [](lv_event_t* e) {
+            App_Main* self = (App_Main*)lv_event_get_user_data(e);
+            uint32_t key = lv_indev_get_key(lv_indev_get_act());
+            if (key == KEY_SWITCH_FOCUS) { 
+                self->toggle_focus_group();
+            } }, LV_EVENT_KEY, this);
 
         ESP_LOGI("UI", "UI Init Complete.");
     }
 
+    void toggle_focus_group() {
+        lv_indev_t* kp = KeypadDriver::get_indev();
+        lv_group_t* curr_g = lv_indev_get_group(kp);
+
+        // Disable editing to free encoder from text box
+        if (curr_g) lv_group_set_editing(curr_g, false);
+
+        if (curr_g == group_menu->get_handle()) {
+            ESP_LOGI("UI", "Focus -> APP");
+
+            group_app->attach_to_indev(kp);
+            if (encoder_indev) group_app->attach_to_indev(encoder_indev);
+
+            // Visuals: Active Border
+            side_menu->set_border(0, lv_color_hex(0x000000));
+            content_area->set_border(1, lv_color_hex(0x007AFF));  // Subtle blue selection
+
+            // Focus Input Field (Index 1 usually: 0=List, 1=InputContainer->Input)
+            // We search for the TextInput widget specifically or just focus the first focusable
+            lv_obj_t* target = lv_group_get_obj_by_index(group_app->get_handle(), 0);
+            if (target) lv_group_focus_obj(target);
+
+        } else {
+            ESP_LOGI("UI", "Focus -> MENU");
+
+            group_menu->attach_to_indev(kp);
+            if (encoder_indev) group_menu->attach_to_indev(encoder_indev);
+
+            side_menu->set_border(1, lv_color_hex(0x007AFF));
+            content_area->set_border(0, lv_color_hex(0x000000));
+
+            // Focus First Menu Item
+            lv_obj_t* target = lv_group_get_obj_by_index(group_menu->get_handle(), 0);
+            if (target) lv_group_focus_obj(target);
+        }
+    }
+
     void build_menu() {
-        // Add simple buttons to test
-        auto btn1 = side_menu->add<Button>("M");
-        btn1->set_size(24, 24);
-        btn1->set_callback([this]() {
-            ESP_LOGI("UI", "Menu Clicked");
-            // Add logic here later
+        auto btn_msg = side_menu->add<Button>("M");
+        btn_msg->set_size(28, 28);
+        btn_msg->set_padding(0);
+        btn_msg->set_callback([this]() { load_messaging_app(); });
+
+        auto btn_set = side_menu->add<Button>("S");
+        btn_set->set_size(28, 28);
+        btn_set->set_padding(0);
+        btn_set->set_callback([]() { ESP_LOGI("UI", "Settings clicked"); });
+
+        // Initial State
+        group_menu->attach_to_indev(KeypadDriver::get_indev());
+        if (encoder_indev) group_menu->attach_to_indev(encoder_indev);
+        group_menu->focus_obj(btn_msg->get_lv_obj());
+        side_menu->set_border(1, lv_color_hex(0x007AFF));
+    }
+
+    void load_messaging_app() {
+        content_area->clear();
+
+        // 1. Chat History List (Fills available space)
+        chat_history = content_area->add<MessageList>();
+        chat_history->set_flex_grow(1);
+        chat_history->set_width(LV_PCT(100));
+        chat_history->set_padding(6);
+        chat_history->set_gap(8);
+
+        // Add dummy data
+        chat_history->add_message("Welcome to TMesh!", false);
+        chat_history->add_message("System Online.", false);
+
+        // 2. Input Bar (Fixed at bottom)
+        auto input_row = content_area->add<FlexContainer>(LV_FLEX_FLOW_ROW);
+        input_row->set_width(LV_PCT(100));
+        input_row->set_height(34);
+        input_row->set_bg_color(lv_color_hex(0x222222));
+        input_row->set_padding(2);
+        input_row->set_gap(4);
+        input_row->set_align(LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+        // Text Input
+        auto input = input_row->add<TextInput>("Message...");
+        input->set_flex_grow(1);
+        input->set_height(28);
+
+        // Send Callback
+        input->set_on_submit([this, input](std::string text) {
+            if (text.empty()) return;
+
+            // Add to Chat UI (Right side = Me)
+            if (chat_history) chat_history->add_message(text, true);
+
+            input->set_text("");  // Clear input
+
+            // TODO: Radio::send(text);
         });
 
-        group_menu->attach_to_indev(KeypadDriver::get_indev());
-        group_menu->focus_obj(btn1->get_lv_obj());
+        // Auto-focus logic handled by toggle_focus_group()
     }
 
    private:
     std::unique_ptr<Group> group_menu;
     std::unique_ptr<Group> group_app;
     std::unique_ptr<FlexContainer> root_col;
+
     FlexContainer* status_bar = nullptr;
     FlexContainer* body_row = nullptr;
     FlexContainer* side_menu = nullptr;
     FlexContainer* content_area = nullptr;
+
+    // Keep reference to chat history to add messages dynamically
+    MessageList* chat_history = nullptr;
+
+    lv_indev_t* encoder_indev = nullptr;
 };

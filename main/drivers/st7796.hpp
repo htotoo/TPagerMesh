@@ -37,6 +37,7 @@ class ST7796Driver {
         disp_on = !disp_on;
         dispOnOff(disp_on);
     }
+    static lv_display_t* disp;
 
    protected:
     void init_lvgl_display();
@@ -47,7 +48,7 @@ class ST7796Driver {
     uint16_t brightness = 1023;  // when on, we'll use it
     esp_lcd_panel_handle_t panel_handle = nullptr;
     esp_lcd_panel_io_handle_t io_handle = nullptr;
-    static lv_display_t* disp;
+
     typedef struct {
         uint32_t addr;
         uint8_t param[20];

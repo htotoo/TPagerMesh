@@ -8,7 +8,6 @@
 #include <memory>
 #include <cstring>
 
-// Log Tag for UI Debugging
 static const char* UI_TAG = "UI_WIDGET";
 
 // --- Group Wrapper (RAII) ---
@@ -25,6 +24,7 @@ class Group {
     void add_obj(lv_obj_t* obj) { lv_group_add_obj(handle, obj); }
     void focus_obj(lv_obj_t* obj) { lv_group_focus_obj(obj); }
     void attach_to_indev(lv_indev_t* indev) { lv_indev_set_group(indev, handle); }
+    void set_editing(bool edit) { lv_group_set_editing(handle, edit); }
 
    private:
     lv_group_t* handle = nullptr;
@@ -36,8 +36,7 @@ class Widget {
     Widget(Widget* parent = nullptr) {
         lv_obj_t* p = parent ? parent->get_lv_obj() : lv_scr_act();
         obj = lv_obj_create(p);
-        // NOTE: We do NOT call remove_style_all() here.
-        // Basic widgets need default styles to be visible.
+        // Note: We leave default styles alone so widgets look correct
     }
 
     virtual ~Widget() {
@@ -73,7 +72,7 @@ class Widget {
 
     void set_bg_color(lv_color_t color) {
         lv_obj_set_style_bg_color(obj, color, 0);
-        lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);  // Important: Make it opaque!
+        lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     }
 
     void set_border(int width, lv_color_t color) {
@@ -104,8 +103,6 @@ class Container : public Widget {
     Container(Widget* parent) : Widget(parent) {
         remove_style_all();
         lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        // Fix: Containers are transparent by default after remove_style_all.
-        // We leave it transparent, but allow set_bg_color to work later.
     }
 
     template <typename T, typename... Args>
@@ -113,28 +110,23 @@ class Container : public Widget {
         auto widget = std::make_unique<T>(this, std::forward<Args>(args)...);
         T* raw_ptr = widget.get();
 
-        // Enforce Parenting
         if (lv_obj_get_parent(raw_ptr->get_lv_obj()) != this->obj) {
             lv_obj_set_parent(raw_ptr->get_lv_obj(), this->obj);
         }
 
-        // Add to group
-        if (default_group) raw_ptr->add_to_group(default_group);
+        // CRITICAL FIX: Only add to group if the widget is interactive!
+        // This prevents Labels and Bubbles from stealing focus.
+        if (default_group) {
+            if (lv_obj_has_flag(raw_ptr->get_lv_obj(), LV_OBJ_FLAG_CLICKABLE)) {
+                raw_ptr->add_to_group(default_group);
+            }
+        }
 
         children.push_back(std::move(widget));
-
-        // Debug Log
-        // ESP_LOGI(UI_TAG, "Added Widget to Container. Children count: %d", children.size());
-
         return raw_ptr;
     }
 
-    void clear() {
-        children.clear();
-        // ESP_LOGI(UI_TAG, "Container Cleared");
-    }
-
-    void set_default_group(lv_group_t* g) { default_group = g; }
+    void clear() { children.clear(); }
     void set_default_group(Group* g) { default_group = g ? g->get_handle() : nullptr; }
 
    protected:
@@ -150,9 +142,9 @@ class FlexContainer : public Container {
         : Container(lv_obj_create(parent ? parent->get_lv_obj() : lv_scr_act())) {
         lv_obj_set_layout(obj, LV_LAYOUT_FLEX);
         lv_obj_set_flex_flow(obj, flow);
-        lv_obj_set_style_pad_gap(obj, 5, 0);
+        lv_obj_set_style_pad_all(obj, 0, 0);
+        lv_obj_set_style_pad_gap(obj, 0, 0);
     }
-
     void set_gap(int gap_px) { lv_obj_set_style_pad_gap(obj, gap_px, 0); }
     void set_flow(lv_flex_flow_t flow) { lv_obj_set_flex_flow(obj, flow); }
     void set_align(lv_flex_align_t main, lv_flex_align_t cross, lv_flex_align_t track) {
@@ -193,7 +185,6 @@ class Button : public Widget {
     lv_obj_t* label_obj = nullptr;
     std::function<void()> callback;
     static void internal_event_handler(lv_event_t* e) {
-        // Fix: Cast void* to lv_obj_t*
         Button* btn = static_cast<Button*>(lv_obj_get_user_data((lv_obj_t*)lv_event_get_target(e)));
         if (btn && btn->callback) btn->callback();
     }
@@ -281,24 +272,26 @@ class ConsoleLog : public Widget {
         : Widget(lv_textarea_create(parent ? parent->get_lv_obj() : lv_scr_act())), max_len(buffer_size) {
         set_size(LV_PCT(100), LV_PCT(100));
 
-        // FIX: Removed invalid call. Use Flags to disable editing.
+        // Disable interaction so it doesn't get added to input group (checked by flag)
         lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
         lv_textarea_set_cursor_click_pos(obj, false);
 
         set_bg_color(lv_color_hex(0x000000));
         lv_obj_set_style_text_color(obj, lv_color_hex(0x00FF00), 0);
-
-        // FIX: Use default font to be safe
         lv_obj_set_style_text_font(obj, lv_font_get_default(), 0);
     }
     void log(const std::string& text) {
         lv_textarea_add_text(obj, text.c_str());
         lv_textarea_add_char(obj, '\n');
+
+        // Rolling buffer safety
         const char* txt = lv_textarea_get_text(obj);
-        size_t len = strlen(txt);
-        if (len > max_len) {
-            lv_textarea_set_text(obj, txt + (len - max_len));
-            lv_textarea_set_cursor_pos(obj, LV_TEXTAREA_CURSOR_LAST);
+        if (txt) {
+            size_t len = strlen(txt);
+            if (len > max_len) {
+                lv_textarea_set_text(obj, txt + (len - max_len));
+                lv_textarea_set_cursor_pos(obj, LV_TEXTAREA_CURSOR_LAST);
+            }
         }
     }
     void clear_log() { lv_textarea_set_text(obj, ""); }
@@ -315,16 +308,19 @@ class MessageList : public FlexContainer {
         set_flex_grow(1);
         set_padding(5);
         set_gap(8);
-        lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLL_ELASTIC);
+        // Important: MessageList itself is NOT interactive, so it won't be focused.
+        // The children (Bubbles) are containers, also not interactive.
+        // This is perfect: Focus stays on the Input Box.
     }
     void add_message(const std::string& text, bool is_me) {
         auto bubble = add<Container>();
-        bubble->set_width(LV_SIZE_CONTENT);
+        // Use Content width but capped at 85%
+        lv_obj_set_width(bubble->get_lv_obj(), LV_SIZE_CONTENT);
         lv_obj_set_style_max_width(bubble->get_lv_obj(), lv_pct(85), 0);
+
         bubble->set_padding(8);
-        lv_obj_set_style_radius(bubble->get_lv_obj(), 10, 0);
-        // Important: Set Opacity on Bubble
-        bubble->set_bg_color(is_me ? lv_color_hex(0x007AFF) : lv_color_hex(0x444444));
+        lv_obj_set_style_radius(bubble->get_lv_obj(), 12, 0);
+        bubble->set_bg_color(is_me ? lv_color_hex(0x007AFF) : lv_color_hex(0x333333));
 
         if (is_me)
             lv_obj_set_align(bubble->get_lv_obj(), LV_ALIGN_TOP_RIGHT);
@@ -334,6 +330,8 @@ class MessageList : public FlexContainer {
         auto lbl = bubble->add<Label>(text);
         lbl->set_text_color(lv_color_hex(0xFFFFFF));
         lbl->set_long_mode(LV_LABEL_LONG_WRAP);
+
+        // Label fills the bubble, bubble grows with text until max-width
         lv_obj_set_width(lbl->get_lv_obj(), LV_PCT(100));
 
         lv_obj_update_layout(obj);
