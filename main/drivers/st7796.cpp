@@ -3,7 +3,7 @@ static const char* TAG = "st7796";
 lv_display_t* ST7796Driver::disp = nullptr;
 
 static void lv_tick_task(void* arg) {
-    lv_tick_inc(5);  // Tell LVGL that 2 milliseconds have passed
+    lv_tick_inc(2);  // Tell LVGL that 2 milliseconds have passed
 }
 void start_lvgl_tick() {
     const esp_timer_create_args_t lv_tick_timer_args = {
@@ -12,7 +12,7 @@ void start_lvgl_tick() {
     esp_timer_handle_t lv_tick_timer;
     esp_timer_create(&lv_tick_timer_args, &lv_tick_timer);
     // Fire every 2ms
-    esp_timer_start_periodic(lv_tick_timer, 5000);
+    esp_timer_start_periodic(lv_tick_timer, 2000);
 }
 
 bool ST7796Driver::begin() {
@@ -41,7 +41,7 @@ bool ST7796Driver::begin() {
     panel_handle = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = -1,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
     };
     // Create LCD panel handle for ST7796, with the SPI IO device handle
@@ -50,7 +50,7 @@ bool ST7796Driver::begin() {
 
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
 
-    esp_lcd_panel_invert_color(panel_handle, false);
+    esp_lcd_panel_invert_color(panel_handle, true);
     esp_lcd_panel_swap_xy(panel_handle, true);
     esp_lcd_panel_mirror(panel_handle, true, true);
     esp_lcd_panel_set_gap(panel_handle, 0, 49);
@@ -58,8 +58,8 @@ bool ST7796Driver::begin() {
     // init backlight using LEDC
     init_backlight();
     init_lvgl_display();
-    // start_lvgl_tick();
-    lv_timer_handler();
+    start_lvgl_tick();
+
     return true;
 }
 
@@ -132,7 +132,7 @@ void ST7796Driver::init_lvgl_display() {
     // LVGL 9 needs a buffer to render into. 1/10th of screen is standard.
     // We use heap_caps_malloc to put it in DMA-capable RAM (Internal or PSRAM)
     size_t buf_size = w * LCD_BUFFER_LINES * sizeof(uint16_t);  // 20 lines high
-    void* buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    void* buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
     void* buf2 = NULL;  // Set this to a second buffer for double-buffering (smoother animation)
 
     // 5. Configure the Display
@@ -146,21 +146,6 @@ void ST7796Driver::init_lvgl_display() {
     // We need 'notify_lvgl_flush_ready' to know which 'disp' to notify.
     // (This part depends on how your specific esp_lcd IO driver stores context,
     // often simpler to use a global variable for 'disp' if this gets too complex).
-    lv_obj_t* c1 = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(c1, 20, 20);
-    lv_obj_set_style_radius(c1, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(c1, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_width(c1, 0, 0);
-    lv_obj_align(c1, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_remove_flag(c1, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t* c2 = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(c2, 20, 20);
-    lv_obj_set_style_radius(c2, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(c2, lv_color_hex(0x0FFF0F), 0);
-    lv_obj_set_style_border_width(c2, 0, 0);
-    lv_obj_align(c2, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_remove_flag(c2, LV_OBJ_FLAG_SCROLLABLE);
 }
 
 void ST7796Driver::init_backlight() {

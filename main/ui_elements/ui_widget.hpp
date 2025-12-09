@@ -72,7 +72,7 @@ class Widget {
 
     void set_bg_color(lv_color_t color) {
         lv_obj_set_style_bg_color(obj, color, 0);
-        lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
+        // lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     }
 
     void set_border(int width, lv_color_t color) {

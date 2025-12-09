@@ -24,16 +24,17 @@ class App_Main {
         status_bar = root_col->add<FlexContainer>(LV_FLEX_FLOW_ROW);
         status_bar->set_size(LV_PCT(100), 18);
         status_bar->set_bg_color(lv_color_hex(0x181818));
+
         status_bar->set_align(LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         status_bar->set_padding(4);
 
         // Title
         auto title = status_bar->add<Label>("TMesh");
-        title->set_text_color(lv_color_hex(0x007AFF));  // Accent Blue
+        title->set_text_color(lv_color_hex(0xFFFFFF));  // Accent Blue
 
         // Clock
         auto time_lbl = status_bar->add<Label>("12:00");
-        time_lbl->set_text_color(lv_color_hex(0xAAAAAA));
+        time_lbl->set_text_color(lv_color_hex(0xFFFFFF));
 
         // 4. Body Row (Holds Menu + Content)
         body_row = root_col->add<FlexContainer>(LV_FLEX_FLOW_ROW);
@@ -65,10 +66,11 @@ class App_Main {
         lv_indev_add_event_cb(KeypadDriver::get_indev(), [](lv_event_t* e) {
             App_Main* self = (App_Main*)lv_event_get_user_data(e);
             uint32_t key = lv_indev_get_key(lv_indev_get_act());
+            ESP_LOGI("UI", "Key Event: %lu", key);
             if (key == KEY_SWITCH_FOCUS) { 
+                ESP_LOGI("UI", "Tab pressed.");
                 self->toggle_focus_group();
             } }, LV_EVENT_KEY, this);
-
         ESP_LOGI("UI", "UI Init Complete.");
     }
 
@@ -101,7 +103,7 @@ class App_Main {
             if (encoder_indev) group_menu->attach_to_indev(encoder_indev);
 
             side_menu->set_border(1, lv_color_hex(0x007AFF));
-            content_area->set_border(0, lv_color_hex(0x000000));
+            content_area->set_border(0, lv_color_hex(0xFF0000));
 
             // Focus First Menu Item
             lv_obj_t* target = lv_group_get_obj_by_index(group_menu->get_handle(), 0);
@@ -114,17 +116,19 @@ class App_Main {
         btn_msg->set_size(28, 28);
         btn_msg->set_padding(0);
         btn_msg->set_callback([this]() { load_messaging_app(); });
+        btn_msg->set_bg_color(lv_color_hex(0xFF0000));
 
         auto btn_set = side_menu->add<Button>("S");
         btn_set->set_size(28, 28);
         btn_set->set_padding(0);
         btn_set->set_callback([]() { ESP_LOGI("UI", "Settings clicked"); });
+        btn_set->set_bg_color(lv_color_hex(0x0000FF));
 
         // Initial State
         group_menu->attach_to_indev(KeypadDriver::get_indev());
         if (encoder_indev) group_menu->attach_to_indev(encoder_indev);
         group_menu->focus_obj(btn_msg->get_lv_obj());
-        side_menu->set_border(1, lv_color_hex(0x007AFF));
+        // side_menu->set_border(1, lv_color_hex(0x007AFF));
     }
 
     void load_messaging_app() {
