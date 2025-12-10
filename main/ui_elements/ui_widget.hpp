@@ -72,7 +72,7 @@ class Widget {
 
     void set_bg_color(lv_color_t color) {
         lv_obj_set_style_bg_color(obj, color, 0);
-        // lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     }
 
     void set_border(int width, lv_color_t color) {
@@ -314,7 +314,7 @@ class MessageList : public FlexContainer {
     }
     void add_message(const std::string& text, bool is_me) {
         auto bubble = add<Container>();
-        // Use Content width but capped at 85%
+        // 1. Bubble grows with text, but stops at 85% of screen
         lv_obj_set_width(bubble->get_lv_obj(), LV_SIZE_CONTENT);
         lv_obj_set_style_max_width(bubble->get_lv_obj(), lv_pct(85), 0);
 
@@ -331,8 +331,11 @@ class MessageList : public FlexContainer {
         lbl->set_text_color(lv_color_hex(0xFFFFFF));
         lbl->set_long_mode(LV_LABEL_LONG_WRAP);
 
-        // Label fills the bubble, bubble grows with text until max-width
-        lv_obj_set_width(lbl->get_lv_obj(), LV_PCT(100));
+        // --- BUG FIX ---
+        // DELETE THIS LINE: lv_obj_set_width(lbl->get_lv_obj(), LV_PCT(100));
+        // Replace with:
+        lv_obj_set_width(lbl->get_lv_obj(), LV_SIZE_CONTENT);  // Let text determine width
+        // ---------------
 
         lv_obj_update_layout(obj);
         lv_obj_scroll_to_view(bubble->get_lv_obj(), LV_ANIM_ON);

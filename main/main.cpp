@@ -340,7 +340,13 @@ void app_main(void) {
     lv_indev_set_read_cb(encoder_indev, encoder_read_cb);
 
     keypad.register_lvgl();
-    app_main_ui.init(encoder_indev);
+    keypad.set_global_key_hook([](uint32_t key) {
+        ESP_LOGI(TAG, "Key pressed: 0x%08" PRIx32, key);
+        if (key == KEY_SWITCH_FOCUS) {
+            app_main_ui.toggle_focus_group();
+        }
+    });
+    app_main_ui.init(encoder_indev, keypad.get_indev());
 
     while (1) {
         timer++;

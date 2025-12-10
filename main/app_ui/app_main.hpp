@@ -6,7 +6,7 @@ class App_Main {
     App_Main() {}
     ~App_Main() {}
 
-    void init(lv_indev_t* enc_indev) {
+    void init(lv_indev_t* enc_indev, lv_indev_t* keypad_indev) {
         encoder_indev = enc_indev;
         ESP_LOGI("UI", "Initializing UI...");
 
@@ -30,12 +30,10 @@ class App_Main {
 
         // Title
         auto title = status_bar->add<Label>("TMesh");
-        title->set_text_color(lv_color_hex(0x000000));  // Accent Blue
         title->set_bg_color(lv_color_hex(0x000000));
 
         // Clock
         auto time_lbl = status_bar->add<Label>("12:00");
-        time_lbl->set_text_color(lv_color_hex(0x0000FF));
 
         // 4. Body Row (Holds Menu + Content)
         body_row = root_col->add<FlexContainer>(LV_FLEX_FLOW_ROW);
@@ -63,15 +61,6 @@ class App_Main {
         build_menu();
         load_messaging_app();
 
-        // 8. Global Key Listener (Switch Groups)
-        lv_indev_add_event_cb(KeypadDriver::get_indev(), [](lv_event_t* e) {
-            App_Main* self = (App_Main*)lv_event_get_user_data(e);
-            uint32_t key = lv_indev_get_key(lv_indev_get_act());
-            ESP_LOGI("UI", "Key Event: %lu", key);
-            if (key == KEY_SWITCH_FOCUS) { 
-                ESP_LOGI("UI", "Tab pressed.");
-                self->toggle_focus_group();
-            } }, LV_EVENT_KEY, this);
         ESP_LOGI("UI", "UI Init Complete.");
     }
 
@@ -79,34 +68,35 @@ class App_Main {
         lv_indev_t* kp = KeypadDriver::get_indev();
         lv_group_t* curr_g = lv_indev_get_group(kp);
 
-        // Disable editing to free encoder from text box
+        // Reset editing state on the old group before switching
         if (curr_g) lv_group_set_editing(curr_g, false);
 
         if (curr_g == group_menu->get_handle()) {
             ESP_LOGI("UI", "Focus -> APP");
 
+            // 1. Attach Input Device to App Group
             group_app->attach_to_indev(kp);
             if (encoder_indev) group_app->attach_to_indev(encoder_indev);
 
-            // Visuals: Active Border
+            // 2. Visuals
             side_menu->set_border(0, lv_color_hex(0x000000));
-            content_area->set_border(1, lv_color_hex(0x007AFF));  // Subtle blue selection
+            content_area->set_border(1, lv_color_hex(0x007AFF));
 
-            // Focus Input Field (Index 1 usually: 0=List, 1=InputContainer->Input)
-            // We search for the TextInput widget specifically or just focus the first focusable
-            lv_obj_t* target = lv_group_get_obj_by_index(group_app->get_handle(), 0);
-            if (target) lv_group_focus_obj(target);
+            // 3. FORCE EDIT MODE
+            lv_group_set_editing(group_app->get_handle(), true);
 
         } else {
             ESP_LOGI("UI", "Focus -> MENU");
 
+            // 1. Attach Input Device to Menu Group
             group_menu->attach_to_indev(kp);
             if (encoder_indev) group_menu->attach_to_indev(encoder_indev);
 
+            // 2. Visuals
             side_menu->set_border(1, lv_color_hex(0x007AFF));
             content_area->set_border(0, lv_color_hex(0xFF0000));
 
-            // Focus First Menu Item
+            // 3. Reset focus to first button
             lv_obj_t* target = lv_group_get_obj_by_index(group_menu->get_handle(), 0);
             if (target) lv_group_focus_obj(target);
         }
@@ -129,50 +119,47 @@ class App_Main {
         group_menu->attach_to_indev(KeypadDriver::get_indev());
         if (encoder_indev) group_menu->attach_to_indev(encoder_indev);
         group_menu->focus_obj(btn_msg->get_lv_obj());
-        // side_menu->set_border(1, lv_color_hex(0x007AFF));
     }
 
     void load_messaging_app() {
         content_area->clear();
 
-        // 1. Chat History List (Fills available space)
+        // 1. Chat History List (Fills all remaining space)
         chat_history = content_area->add<MessageList>();
         chat_history->set_flex_grow(1);
         chat_history->set_width(LV_PCT(100));
-        chat_history->set_padding(6);
-        chat_history->set_gap(8);
+
+        // CRITICAL FIX: Disable clicking on the list itself so it is skipped by navigation
+        lv_obj_remove_flag(chat_history->get_lv_obj(), LV_OBJ_FLAG_CLICKABLE);
 
         // Add dummy data
         chat_history->add_message("Welcome to TMesh!", false);
         chat_history->add_message("System Online.", false);
 
-        // 2. Input Bar (Fixed at bottom)
-        auto input_row = content_area->add<FlexContainer>(LV_FLEX_FLOW_ROW);
-        input_row->set_width(LV_PCT(100));
-        input_row->set_height(34);
-        input_row->set_bg_color(lv_color_hex(0x222222));
-        input_row->set_padding(2);
-        input_row->set_gap(4);
-        input_row->set_align(LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        // 2. Text Input (Directly in content_area, aligned to bottom)
+        auto input = content_area->add<TextInput>("Message...");
+        input->set_width(LV_PCT(100));
+        input->set_height(40);    // Fixed height for input area
+        input->set_flex_grow(0);  // Do not grow, stay fixed
 
-        // Text Input
-        auto input = input_row->add<TextInput>("Message...");
-        input->set_flex_grow(1);
-        input->set_height(28);
+        // Style: Add a top border to separate it from chat
+        lv_obj_set_style_border_width(input->get_lv_obj(), 2, 0);
+        lv_obj_set_style_border_side(input->get_lv_obj(), LV_BORDER_SIDE_TOP, 0);
+
+        // --- CRITICAL FIX: Manually Add to Group ---
+        // Since content_area might have mixed children, we ensure input is 100% in the group.
+        input->add_to_group(group_app.get());
 
         // Send Callback
         input->set_on_submit([this, input](std::string text) {
             if (text.empty()) return;
-
-            // Add to Chat UI (Right side = Me)
             if (chat_history) chat_history->add_message(text, true);
+            input->set_text("");
 
-            input->set_text("");  // Clear input
-
-            // TODO: Radio::send(text);
+            // Keep focus on input after sending
+            // (Optional, LVGL often keeps it anyway, but this is safe)
+            lv_obj_send_event(input->get_lv_obj(), LV_EVENT_CLICKED, NULL);
         });
-
-        // Auto-focus logic handled by toggle_focus_group()
     }
 
    private:

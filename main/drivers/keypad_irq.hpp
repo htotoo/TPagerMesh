@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -11,41 +12,45 @@
 #define TCA8418_ADDR 0x34
 #define I2C_PORT I2C_NUM_0
 #define KEYPAD_IRQ_PIN GPIO_NUM_6
-
 #define KEY_SWITCH_FOCUS 0x80
-
-// Map Definitions
 #define KEYMAP_ROWS 32
 #define KEYMAP_COLS 3
 
 class KeypadDriver {
    public:
     void begin();
-
-    // LVGL Callback
-    static void read_cb(lv_indev_t* indev, lv_indev_data_t* data);
-
-    // Accessor for main.cpp
+    void register_lvgl();
     static lv_indev_t* get_indev() { return indev_keypad; }
 
-    void register_lvgl();
+    // Callback for LVGL
+    static void read_cb(lv_indev_t* indev, lv_indev_data_t* data);
+
+    // Global hook for System Keys (Focus switch, etc)
+    typedef std::function<void(uint32_t)> key_hook_t;
+    static void set_global_key_hook(key_hook_t hook) { global_hook = hook; }
 
    private:
+    // New Data Structure for Event Queue
+    struct KeyEvent {
+        uint32_t key;
+        bool is_pressed;
+    };
+
     static void IRAM_ATTR isr_handler(void* arg);
     static void handle_interrupt_task(void* arg);
     static void write_byte(uint8_t reg, uint8_t val);
     static uint8_t read_byte(uint8_t reg);
 
-    // Mapping Logic
+    // Logic
     static uint32_t map_key(uint8_t key_id);
     static int get_key_index(uint8_t key_id);
 
     static lv_indev_t* indev_keypad;
     static SemaphoreHandle_t irq_sem;
-    static QueueHandle_t key_queue;
+    static QueueHandle_t key_queue;  // Now holds KeyEvent struct
+    static key_hook_t global_hook;
 
-    // Logic State
-    static uint8_t key_stage;          // 0=Lower, 1=Upper, 2=Num
-    static uint32_t current_held_key;  // The key currently physically held down
-    static uint32_t last_sent_key;     // The last key reported to LVGL
+    static uint8_t key_stage;
+    static uint32_t last_processed_key;  // Used to keep state stable when queue is empty
+    static bool last_processed_state;    // Used to keep state stable when queue is empty
 };
