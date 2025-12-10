@@ -1,5 +1,9 @@
 #include "ui_elements/ui_widget.hpp"
 #include "drivers/keypad_irq.hpp"
+#include "message_store.hpp"
+
+LV_FONT_DECLARE(font_montserrat_10_hun);
+LV_FONT_DECLARE(font_montserrat_12_hun);
 
 class App_Main {
    public:
@@ -7,8 +11,14 @@ class App_Main {
     ~App_Main() {}
 
     void init(lv_indev_t* enc_indev, lv_indev_t* keypad_indev) {
-        encoder_indev = enc_indev;
         ESP_LOGI("UI", "Initializing UI...");
+        static lv_style_t style_global_font;
+        lv_style_init(&style_global_font);
+        lv_style_set_text_font(&style_global_font, &font_montserrat_12_hun);
+        lv_obj_t* screen = lv_scr_act();
+        lv_obj_add_style(screen, &style_global_font, LV_PART_MAIN);
+
+        encoder_indev = enc_indev;
 
         // 1. Create Groups
         group_menu = std::make_unique<Group>();
@@ -133,8 +143,8 @@ class App_Main {
         lv_obj_remove_flag(chat_history->get_lv_obj(), LV_OBJ_FLAG_CLICKABLE);
 
         // Add dummy data
-        chat_history->add_message("Welcome to TMesh!", false);
-        chat_history->add_message("System Online.", false);
+        // chat_history->add_message("Welcome to TMesh!", false);
+        // chat_history->add_message("System Online.", false);
 
         // 2. Text Input (Directly in content_area, aligned to bottom)
         auto input = content_area->add<TextInput>("Message...");
@@ -153,13 +163,24 @@ class App_Main {
         // Send Callback
         input->set_on_submit([this, input](std::string text) {
             if (text.empty()) return;
-            if (chat_history) chat_history->add_message(text, true);
+            // if (chat_history) chat_history->add_message(text, true);
             input->set_text("");
 
             // Keep focus on input after sending
             // (Optional, LVGL often keeps it anyway, but this is safe)
             lv_obj_send_event(input->get_lv_obj(), LV_EVENT_CLICKED, NULL);
         });
+    }
+
+    void set_message_store(MessageStore* store) {
+        message_store = store;
+        if (message_store) {
+            message_store->addListener([this](const MessageStore::MessageEntry& entry) {
+                if (chat_history) {
+                    chat_history->add_message(entry);
+                }
+            });
+        }
     }
 
    private:
@@ -174,6 +195,8 @@ class App_Main {
 
     // Keep reference to chat history to add messages dynamically
     MessageList* chat_history = nullptr;
-
     lv_indev_t* encoder_indev = nullptr;
+
+    // helpers
+    MessageStore* message_store = nullptr;
 };

@@ -7,6 +7,10 @@
 #include <vector>
 #include <memory>
 #include <cstring>
+#include "message_store.hpp"
+
+LV_FONT_DECLARE(font_montserrat_10_hun);
+LV_FONT_DECLARE(font_montserrat_12_hun);
 
 static const char* UI_TAG = "UI_WIDGET";
 
@@ -305,39 +309,147 @@ class MessageList : public FlexContainer {
    public:
     MessageList(Widget* parent) : FlexContainer(parent, LV_FLEX_FLOW_COLUMN) {
         set_width(LV_PCT(100));
-        set_flex_grow(1);
-        set_padding(5);
-        set_gap(8);
-        // Important: MessageList itself is NOT interactive, so it won't be focused.
-        // The children (Bubbles) are containers, also not interactive.
-        // This is perfect: Focus stays on the Input Box.
+        set_height(LV_PCT(100));  // The list itself fills the screen
+        set_padding(10);
+
+        // Critical: Set the gap between distinct chat bubbles
+        lv_obj_set_style_pad_row(obj, 8, 0);
+
+        // Ensure scrollbar doesn't overlap text
+        lv_obj_set_style_pad_right(obj, 4, LV_PART_SCROLLBAR);
     }
-    void add_message(const std::string& text, bool is_me) {
+
+    void add_message(const MessageStore::MessageEntry& msg) {
+        // --- 1. CALCULATE WIDTHS ---
+        // Get screen width safely to calculate constraints
+        int32_t screen_width = lv_display_get_horizontal_resolution(NULL);
+        if (screen_width <= 0) screen_width = 320;
+
+        // Bubble max width is 80% of screen (standard for chat apps)
+        int32_t max_bubble_width = screen_width * 0.80;
+
+        // Inner padding of the bubble (left + right)
+        int32_t bubble_padding = 16;
+        int32_t max_text_width = max_bubble_width - bubble_padding;
+
+        // --- 2. CREATE BUBBLE CONTAINER ---
         auto bubble = add<Container>();
-        // 1. Bubble grows with text, but stops at 85% of screen
-        lv_obj_set_width(bubble->get_lv_obj(), LV_SIZE_CONTENT);
-        lv_obj_set_style_max_width(bubble->get_lv_obj(), lv_pct(85), 0);
+        lv_obj_t* bubble_obj = bubble->get_lv_obj();
 
-        bubble->set_padding(8);
-        lv_obj_set_style_radius(bubble->get_lv_obj(), 12, 0);
-        bubble->set_bg_color(is_me ? lv_color_hex(0x007AFF) : lv_color_hex(0x333333));
+        // LAYOUT: Vertical column (Sender -> Message -> Time)
+        lv_obj_set_layout(bubble_obj, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(bubble_obj, LV_FLEX_FLOW_COLUMN);
 
-        if (is_me)
-            lv_obj_set_align(bubble->get_lv_obj(), LV_ALIGN_TOP_RIGHT);
-        else
-            lv_obj_set_align(bubble->get_lv_obj(), LV_ALIGN_TOP_LEFT);
+        // HEIGHT FIX: Strictly fit content!
+        lv_obj_set_height(bubble_obj, LV_SIZE_CONTENT);
+        lv_obj_set_width(bubble_obj, LV_SIZE_CONTENT);
+        lv_obj_set_style_max_width(bubble_obj, max_bubble_width, 0);
 
-        auto lbl = bubble->add<Label>(text);
-        lbl->set_text_color(lv_color_hex(0xFFFFFF));
-        lbl->set_long_mode(LV_LABEL_LONG_WRAP);
+        // Styling
+        bubble->set_padding(8);                      // Internal padding 8px
+        lv_obj_set_style_radius(bubble_obj, 12, 0);  // Nice rounded corners
 
-        // --- BUG FIX ---
-        // DELETE THIS LINE: lv_obj_set_width(lbl->get_lv_obj(), LV_PCT(100));
-        // Replace with:
-        lv_obj_set_width(lbl->get_lv_obj(), LV_SIZE_CONTENT);  // Let text determine width
-        // ---------------
+        bool is_me = msg.isFromMe;
 
+        // --- 3. COLORS & ALIGNMENT ---
+        if (is_me) {
+            // My messages: Right aligned, Blue
+            lv_obj_set_align(bubble_obj, LV_ALIGN_TOP_RIGHT);
+
+            // Gradient-like Blue (Solid for now, but distinct)
+            bubble->set_bg_color(lv_color_hex(0x007AFF));  // Apple Blue
+            lv_obj_set_style_text_color(bubble_obj, lv_color_hex(0xFFFFFF), 0);
+        } else {
+            // Others: Left aligned, Light Gray
+            lv_obj_set_align(bubble_obj, LV_ALIGN_TOP_LEFT);
+
+            bubble->set_bg_color(lv_color_hex(0xE9E9EB));  // Light Gray
+            lv_obj_set_style_text_color(bubble_obj, lv_color_hex(0x000000), 0);
+        }
+
+        // --- 4. SENDER NAME (Only for others) ---
+        // We don't need to see our own name
+        if (!is_me) {
+            auto sender_lbl = bubble->add<Label>(msg.sender);
+            lv_obj_t* sender_obj = sender_lbl->get_lv_obj();
+
+            lv_obj_set_style_text_font(sender_obj, &font_montserrat_10_hun, 0);
+
+            // Make sender name a distinct color (e.g., Orange or Dark Gray)
+            lv_obj_set_style_text_color(sender_obj, lv_color_hex(0x888888), 0);
+
+            lv_obj_set_width(sender_obj, LV_SIZE_CONTENT);
+            lv_obj_set_style_pad_bottom(sender_obj, 2, 0);  // Tiny gap below name
+        }
+
+        // --- 5. MESSAGE TEXT ---
+        auto body_lbl = bubble->add<Label>(msg.message);
+        lv_obj_t* body_obj = body_lbl->get_lv_obj();
+
+        lv_obj_set_style_text_font(body_obj, &font_montserrat_12_hun, 0);
+        lv_label_set_long_mode(body_obj, LV_LABEL_LONG_WRAP);
+
+        // SIZE FIX: Content width, but capped at max pixels
+        lv_obj_set_width(body_obj, LV_SIZE_CONTENT);
+        lv_obj_set_style_max_width(body_obj, max_text_width, 0);
+
+        // Ensure text color is set correctly based on background
+        if (is_me) {
+            lv_obj_set_style_text_color(body_obj, lv_color_hex(0xFFFFFF), 0);
+        } else {
+            lv_obj_set_style_text_color(body_obj, lv_color_hex(0x000000), 0);
+        }
+
+        // --- 6. TIME STAMP (Bottom Right) ---
+        // Format time
+        char time_buf[16];
+        struct tm tm_info;
+        localtime_r(&msg.time, &tm_info);
+        strftime(time_buf, sizeof(time_buf), "%H:%M", &tm_info);
+
+        auto time_lbl = bubble->add<Label>(time_buf);
+        lv_obj_t* time_obj = time_lbl->get_lv_obj();
+
+        lv_obj_set_style_text_font(time_obj, &font_montserrat_10_hun, 0);
+        lv_obj_set_width(time_obj, LV_SIZE_CONTENT);
+
+        // Align time to the right of the bubble
+        lv_obj_set_align(time_obj, LV_ALIGN_BOTTOM_RIGHT);
+
+        // Make it aligned to the right within the flex column
+        lv_obj_set_style_align(time_obj, LV_ALIGN_BOTTOM_RIGHT, 0);  // Fallback alignment
+        lv_obj_set_align(time_obj, LV_ALIGN_BOTTOM_RIGHT);
+
+        // Important: In a Column flex, items align left by default.
+        // We force this specific item to align "End" (Right).
+        lv_obj_set_flex_align(bubble_obj, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        lv_obj_set_style_align(time_obj, LV_ALIGN_BOTTOM_RIGHT, 0);  // Try to force it right
+
+        // Hack for Flex Column to push Time to right:
+        // We set the "Self Alignment" of the time object
+        lv_obj_set_align(time_obj, LV_ALIGN_BOTTOM_RIGHT);
+        // Note: In LVGL Flex, align_self isn't always exposed simply,
+        // so we often rely on the parent.
+        // If it stays on left, we can wrap it in a container, but let's try this:
+        lv_obj_set_style_text_align(time_obj, LV_TEXT_ALIGN_RIGHT, 0);
+
+        // Opacity/Color for Time
+        if (is_me) {
+            // White text, but transparent
+            lv_obj_set_style_text_color(time_obj, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_text_opa(time_obj, LV_OPA_70, 0);
+        } else {
+            // Grey text
+            lv_obj_set_style_text_color(time_obj, lv_color_hex(0x8A8A8E), 0);
+        }
+
+        // Add a little padding top to separate time from text
+        lv_obj_set_style_pad_top(time_obj, 2, 0);
+        // Force the Time label to align to the right side of the bubble container
+        lv_obj_set_align(time_obj, LV_ALIGN_BOTTOM_RIGHT);
+
+        // --- 7. FINALIZE ---
         lv_obj_update_layout(obj);
-        lv_obj_scroll_to_view(bubble->get_lv_obj(), LV_ANIM_ON);
+        lv_obj_scroll_to_view(bubble_obj, LV_ANIM_ON);
     }
 };

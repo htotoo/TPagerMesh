@@ -31,6 +31,8 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "drivers/st7796.hpp"
 #include "drivers/keypad_irq.hpp"
 #include "esp_timer.h"
+
+#include "message_store.hpp"
 #include "app_ui/app_main.hpp"
 
 App_Main app_main_ui;
@@ -38,6 +40,7 @@ App_Main app_main_ui;
 ST7796Driver lcd;
 XPowersPPM PPM;
 KeypadDriver keypad;
+MessageStore message_store;
 
 #define RE_A_GPIO 40
 #define RE_B_GPIO 41
@@ -319,6 +322,14 @@ void app_main(void) {
             mtCompact.sendTextMessage(reply, replyto, chan, MCT_MESSAGE_TYPE_TEXT, 0, header.packet_id, false, 0);
             ESP_LOGI(TAG, "Sent seq reply to %s", sender.c_str());
         }
+        MessageStore::MessageEntry msg_entry = {
+            .sender = sender,
+            .channel = chan,
+            .isDirect = (header.dstnode != 0xffffffff),
+            .message = message.text,
+            .isFromMe = false,
+            .time = time(NULL)};
+        message_store.addMessage(msg_entry);
     });
 
     std::string short_name = "Info";                                                                     // short name
@@ -347,6 +358,7 @@ void app_main(void) {
         }
     });
     app_main_ui.init(encoder_indev, keypad.get_indev());
+    app_main_ui.set_message_store(&message_store);
 
     while (1) {
         timer++;
@@ -384,7 +396,6 @@ void app_main(void) {
         }
         lv_tick_inc(10);
         lv_timer_handler();
-        // ESP_LOGI(TAG, ".");
         vTaskDelay(pdMS_TO_TICKS(10));  // wait 10 milliseconds
     }
 }
