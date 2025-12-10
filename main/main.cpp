@@ -254,6 +254,10 @@ void app_main(void) {
     ESP_LOGI(TAG, "Initializing Keypad...");
     keypad.begin();
 
+    // LCD init
+    lcd.begin();
+    lcd.setBrightness(100);  // this also turns on the display
+
     // mt init
     mtCompact.loadNodeDb();
     mtCompact.setOkToMqtt(true);
@@ -329,10 +333,6 @@ void app_main(void) {
     uint32_t timer = 0;  // 0.1 second timer
     mtCompact.sendMyNodeInfo();
     mtCompact.sendMyNodeInfo();
-
-    // LCD init
-    lcd.begin();
-    lcd.setBrightness(100);  // this also turns on the display
 
     rotary_encoder_event_t e;
     lv_indev_t* encoder_indev = lv_indev_create();

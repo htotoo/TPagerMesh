@@ -25,7 +25,7 @@
 
 #define LEDC_DISP_PIN 42
 
-#define LCD_HOST SPI3_HOST
+#define LCD_HOST SPI2_HOST
 
 class ST7796Driver {
    public:
