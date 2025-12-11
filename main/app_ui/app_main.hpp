@@ -224,6 +224,10 @@ class App_Main {
             input->set_text("");
             lv_obj_send_event(input->get_lv_obj(), LV_EVENT_CLICKED, NULL);
         });
+        input->set_on_longclick([this]() {
+            ESP_LOGI("UI", "Input long-clicked");
+            // should show channel selector here
+        });
     }
 
     void set_message_store(MessageStore* store) {

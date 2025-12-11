@@ -289,17 +289,27 @@ class TextInput : public Widget {
         lv_obj_set_style_border_width(obj, 2, LV_STATE_FOCUSED);
 
         lv_obj_set_user_data(obj, this);
-        lv_obj_add_event_cb(obj, internal_event_handler, LV_EVENT_READY, NULL);
+        lv_obj_add_event_cb(obj, internal_event_handler, LV_EVENT_ALL, NULL);
     }
     void set_on_submit(std::function<void(std::string)> cb) { on_submit = cb; }
+    void set_on_longclick(std::function<void()> cb) { on_longclick = cb; }
     std::string get_text() { return std::string(lv_textarea_get_text(obj)); }
     void set_text(const std::string& text) { lv_textarea_set_text(obj, text.c_str()); }
 
    private:
     std::function<void(std::string)> on_submit;
+    std::function<void()> on_longclick;
     static void internal_event_handler(lv_event_t* e) {
         TextInput* self = static_cast<TextInput*>(lv_obj_get_user_data((lv_obj_t*)lv_event_get_target(e)));
-        if (self && self->on_submit) self->on_submit(self->get_text());
+        if (!self) return;
+
+        lv_event_code_t code = lv_event_get_code(e);
+        if (code == LV_EVENT_READY) {
+            if (self->on_submit) self->on_submit(self->get_text());
+        }
+        if (code == LV_EVENT_LONG_PRESSED_REPEAT) {
+            return;  // this is what i needed, but called a lot while not released
+        }
     }
 };
 

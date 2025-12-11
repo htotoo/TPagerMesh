@@ -239,5 +239,6 @@ uint8_t KeypadDriver::read_byte(uint8_t reg) {
 void KeypadDriver::register_lvgl() {
     indev_keypad = lv_indev_create();
     lv_indev_set_type(indev_keypad, LV_INDEV_TYPE_KEYPAD);
+    lv_indev_set_long_press_time(indev_keypad, 2000);  // 2000ms for long press
     lv_indev_set_read_cb(indev_keypad, read_cb);
 }
