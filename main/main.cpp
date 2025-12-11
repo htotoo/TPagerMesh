@@ -359,7 +359,10 @@ void app_main(void) {
     });
     app_main_ui.init(encoder_indev, keypad.get_indev());
     app_main_ui.set_message_store(&message_store);
-
+    app_main_ui.set_on_send_message([](const std::string& msg) {
+        ESP_LOGI(TAG, "Sending message: %s", msg.c_str());
+        mtCompact.sendTextMessage(msg, 0xffffffff, 256);
+    });
     while (1) {
         timer++;
         if (timer % (30 * 60 * 100) == 0) {
@@ -368,6 +371,10 @@ void app_main(void) {
         if (mtCompact.nodeinfo_db.needsSave()) {
             // mtCompact.saveNodeDb();
             mtCompact.nodeinfo_db.clearChangedFlag();
+        }
+
+        if (timer % (10 * 100) == 0) {
+            app_main_ui.set_battery_status(99, true);  // todo real battery
         }
         if (xQueueReceive(event_queue_re, &e, pdMS_TO_TICKS(0))) {
             switch (e.type) {

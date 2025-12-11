@@ -29,6 +29,7 @@ class Group {
     void focus_obj(lv_obj_t* obj) { lv_group_focus_obj(obj); }
     void attach_to_indev(lv_indev_t* indev) { lv_indev_set_group(indev, handle); }
     void set_editing(bool edit) { lv_group_set_editing(handle, edit); }
+    void remove_all_objs() { lv_group_remove_all_objs(handle); }
 
    private:
     lv_group_t* handle = nullptr;
@@ -118,8 +119,6 @@ class Container : public Widget {
             lv_obj_set_parent(raw_ptr->get_lv_obj(), this->obj);
         }
 
-        // CRITICAL FIX: Only add to group if the widget is interactive!
-        // This prevents Labels and Bubbles from stealing focus.
         if (default_group) {
             if (lv_obj_has_flag(raw_ptr->get_lv_obj(), LV_OBJ_FLAG_CLICKABLE)) {
                 raw_ptr->add_to_group(default_group);
@@ -241,6 +240,40 @@ class ProgressBar : public Widget {
     void set_color(lv_color_t color) { lv_obj_set_style_bg_color(obj, color, LV_PART_INDICATOR); }
 };
 
+class Checkbox : public Widget {
+   public:
+    Checkbox(Widget* parent, const std::string& text = "")
+        : Widget(lv_checkbox_create(parent ? parent->get_lv_obj() : lv_scr_act())) {
+        lv_checkbox_set_text(obj, text.c_str());
+        lv_obj_set_user_data(obj, this);
+        lv_obj_add_event_cb(obj, internal_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
+    }
+
+    void set_text(const std::string& text) { lv_checkbox_set_text(obj, text.c_str()); }
+
+    void set_checked(bool checked) {
+        if (checked)
+            lv_obj_add_state(obj, LV_STATE_CHECKED);
+        else
+            lv_obj_remove_state(obj, LV_STATE_CHECKED);
+    }
+
+    bool is_checked() const {
+        return lv_obj_has_state(obj, LV_STATE_CHECKED);
+    }
+
+    void set_callback(std::function<void(bool)> cb) { callback = cb; }
+
+   private:
+    std::function<void(bool)> callback;
+    static void internal_event_handler(lv_event_t* e) {
+        Checkbox* self = static_cast<Checkbox*>(lv_obj_get_user_data((lv_obj_t*)lv_event_get_target(e)));
+        if (self && self->callback) {
+            self->callback(self->is_checked());
+        }
+    }
+};
+
 // --- Text Input ---
 class TextInput : public Widget {
    public:
@@ -251,6 +284,7 @@ class TextInput : public Widget {
         lv_textarea_set_placeholder_text(obj, placeholder);
         lv_textarea_set_one_line(obj, true);
 
+        lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_border_color(obj, lv_color_hex(0x007AFF), LV_STATE_FOCUSED);
         lv_obj_set_style_border_width(obj, 2, LV_STATE_FOCUSED);
 
@@ -307,101 +341,94 @@ class ConsoleLog : public Widget {
 // --- Message List ---
 class MessageList : public FlexContainer {
    public:
-    MessageList(Widget* parent) : FlexContainer(parent, LV_FLEX_FLOW_COLUMN) {
+    // ÚJ: max_len paraméter a memóriavédelemhez (default: 25 üzenet)
+    MessageList(Widget* parent, size_t max_len = 25)
+        : FlexContainer(parent, LV_FLEX_FLOW_COLUMN), max_messages(max_len) {
         set_width(LV_PCT(100));
-        set_height(LV_PCT(100));  // The list itself fills the screen
+        set_height(LV_PCT(100));
         set_padding(10);
 
-        // Critical: Set the gap between distinct chat bubbles
         lv_obj_set_style_pad_row(obj, 8, 0);
-
-        // Ensure scrollbar doesn't overlap text
         lv_obj_set_style_pad_right(obj, 4, LV_PART_SCROLLBAR);
     }
 
+    // Utólag is állítható limit
+    void set_max_history(size_t max) { max_messages = max; }
+
     void add_message(const MessageStore::MessageEntry& msg) {
-        // --- 1. CALCULATE WIDTHS ---
-        // Get screen width safely to calculate constraints
+        // --- 0. MEMÓRIA VÉDELEM (Törlés) ---
+        // Ha elértük a limitet, töröljük a legrégebbi üzeneteket.
+        // Mivel a children vektor unique_ptr-eket tárol, az erase()
+        // automatikusan meghívja a Widget destruktorát, ami pedig
+        // törli az LVGL objektumot (lv_obj_delete).
+        while (children.size() >= max_messages) {
+            children.erase(children.begin());
+        }
+
+        // --- 1. SZÉLESSÉG SZÁMÍTÁS ---
         int32_t screen_width = lv_display_get_horizontal_resolution(NULL);
         if (screen_width <= 0) screen_width = 320;
 
-        // Bubble max width is 80% of screen (standard for chat apps)
         int32_t max_bubble_width = screen_width * 0.80;
-
-        // Inner padding of the bubble (left + right)
         int32_t bubble_padding = 16;
         int32_t max_text_width = max_bubble_width - bubble_padding;
 
-        // --- 2. CREATE BUBBLE CONTAINER ---
+        // --- 2. BUBORÉK LÉTREHOZÁSA ---
         auto bubble = add<Container>();
         lv_obj_t* bubble_obj = bubble->get_lv_obj();
 
-        // LAYOUT: Vertical column (Sender -> Message -> Time)
         lv_obj_set_layout(bubble_obj, LV_LAYOUT_FLEX);
         lv_obj_set_flex_flow(bubble_obj, LV_FLEX_FLOW_COLUMN);
 
-        // HEIGHT FIX: Strictly fit content!
+        // Méretezés
         lv_obj_set_height(bubble_obj, LV_SIZE_CONTENT);
         lv_obj_set_width(bubble_obj, LV_SIZE_CONTENT);
         lv_obj_set_style_max_width(bubble_obj, max_bubble_width, 0);
 
-        // Styling
-        bubble->set_padding(8);                      // Internal padding 8px
-        lv_obj_set_style_radius(bubble_obj, 12, 0);  // Nice rounded corners
+        // Stílus
+        bubble->set_padding(8);
+        lv_obj_set_style_radius(bubble_obj, 12, 0);
 
         bool is_me = msg.isFromMe;
 
-        // --- 3. COLORS & ALIGNMENT ---
+        // --- 3. IGAZÍTÁS ÉS SZÍNEK ---
         if (is_me) {
-            // My messages: Right aligned, Blue
             lv_obj_set_align(bubble_obj, LV_ALIGN_TOP_RIGHT);
-
-            // Gradient-like Blue (Solid for now, but distinct)
-            bubble->set_bg_color(lv_color_hex(0x007AFF));  // Apple Blue
+            bubble->set_bg_color(lv_color_hex(0x007AFF));
             lv_obj_set_style_text_color(bubble_obj, lv_color_hex(0xFFFFFF), 0);
         } else {
-            // Others: Left aligned, Light Gray
             lv_obj_set_align(bubble_obj, LV_ALIGN_TOP_LEFT);
-
-            bubble->set_bg_color(lv_color_hex(0xE9E9EB));  // Light Gray
+            bubble->set_bg_color(lv_color_hex(0xE9E9EB));
             lv_obj_set_style_text_color(bubble_obj, lv_color_hex(0x000000), 0);
         }
 
-        // --- 4. SENDER NAME (Only for others) ---
-        // We don't need to see our own name
+        // --- 4. FELADÓ (Csak másoknál) ---
         if (!is_me) {
             auto sender_lbl = bubble->add<Label>(msg.sender);
             lv_obj_t* sender_obj = sender_lbl->get_lv_obj();
 
             lv_obj_set_style_text_font(sender_obj, &font_montserrat_10_hun, 0);
-
-            // Make sender name a distinct color (e.g., Orange or Dark Gray)
             lv_obj_set_style_text_color(sender_obj, lv_color_hex(0x888888), 0);
-
             lv_obj_set_width(sender_obj, LV_SIZE_CONTENT);
-            lv_obj_set_style_pad_bottom(sender_obj, 2, 0);  // Tiny gap below name
+            lv_obj_set_style_pad_bottom(sender_obj, 2, 0);
         }
 
-        // --- 5. MESSAGE TEXT ---
+        // --- 5. ÜZENET SZÖVEGE ---
         auto body_lbl = bubble->add<Label>(msg.message);
         lv_obj_t* body_obj = body_lbl->get_lv_obj();
 
         lv_obj_set_style_text_font(body_obj, &font_montserrat_12_hun, 0);
         lv_label_set_long_mode(body_obj, LV_LABEL_LONG_WRAP);
 
-        // SIZE FIX: Content width, but capped at max pixels
         lv_obj_set_width(body_obj, LV_SIZE_CONTENT);
         lv_obj_set_style_max_width(body_obj, max_text_width, 0);
 
-        // Ensure text color is set correctly based on background
-        if (is_me) {
+        if (is_me)
             lv_obj_set_style_text_color(body_obj, lv_color_hex(0xFFFFFF), 0);
-        } else {
+        else
             lv_obj_set_style_text_color(body_obj, lv_color_hex(0x000000), 0);
-        }
 
-        // --- 6. TIME STAMP (Bottom Right) ---
-        // Format time
+        // --- 6. IDŐBÉLYEG ---
         char time_buf[16];
         struct tm tm_info;
         localtime_r(&msg.time, &tm_info);
@@ -413,43 +440,26 @@ class MessageList : public FlexContainer {
         lv_obj_set_style_text_font(time_obj, &font_montserrat_10_hun, 0);
         lv_obj_set_width(time_obj, LV_SIZE_CONTENT);
 
-        // Align time to the right of the bubble
+        // Jobbra igazítás a buborékon belül
         lv_obj_set_align(time_obj, LV_ALIGN_BOTTOM_RIGHT);
-
-        // Make it aligned to the right within the flex column
-        lv_obj_set_style_align(time_obj, LV_ALIGN_BOTTOM_RIGHT, 0);  // Fallback alignment
-        lv_obj_set_align(time_obj, LV_ALIGN_BOTTOM_RIGHT);
-
-        // Important: In a Column flex, items align left by default.
-        // We force this specific item to align "End" (Right).
-        lv_obj_set_flex_align(bubble_obj, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-        lv_obj_set_style_align(time_obj, LV_ALIGN_BOTTOM_RIGHT, 0);  // Try to force it right
-
-        // Hack for Flex Column to push Time to right:
-        // We set the "Self Alignment" of the time object
-        lv_obj_set_align(time_obj, LV_ALIGN_BOTTOM_RIGHT);
-        // Note: In LVGL Flex, align_self isn't always exposed simply,
-        // so we often rely on the parent.
-        // If it stays on left, we can wrap it in a container, but let's try this:
+        lv_obj_set_style_align(time_obj, LV_ALIGN_BOTTOM_RIGHT, 0);
         lv_obj_set_style_text_align(time_obj, LV_TEXT_ALIGN_RIGHT, 0);
 
-        // Opacity/Color for Time
         if (is_me) {
-            // White text, but transparent
             lv_obj_set_style_text_color(time_obj, lv_color_hex(0xFFFFFF), 0);
             lv_obj_set_style_text_opa(time_obj, LV_OPA_70, 0);
         } else {
-            // Grey text
             lv_obj_set_style_text_color(time_obj, lv_color_hex(0x8A8A8E), 0);
         }
 
-        // Add a little padding top to separate time from text
         lv_obj_set_style_pad_top(time_obj, 2, 0);
-        // Force the Time label to align to the right side of the bubble container
-        lv_obj_set_align(time_obj, LV_ALIGN_BOTTOM_RIGHT);
 
-        // --- 7. FINALIZE ---
+        // --- 7. FRISSÍTÉS ---
         lv_obj_update_layout(obj);
+        // Automata görgetés a legújabbra
         lv_obj_scroll_to_view(bubble_obj, LV_ANIM_ON);
     }
+
+   private:
+    size_t max_messages;
 };
