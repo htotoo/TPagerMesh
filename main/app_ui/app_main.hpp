@@ -222,7 +222,7 @@ class App_Main {
                     .sender = "Me",
                     .channel = 0,
                     .isDirect = false,
-                    .message = text,
+                    .message = text.c_str(),
                     .isFromMe = true,
                     .time = std::time(nullptr),
                 });

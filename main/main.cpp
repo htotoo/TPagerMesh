@@ -349,10 +349,10 @@ void app_main(void) {
             ESP_LOGI(TAG, "Sent seq reply to %s", sender.c_str());
         }
         MessageStore::MessageEntry msg_entry = {
-            .sender = sender,
+            .sender = sender.c_str(),
             .channel = chan,
             .isDirect = (header.dstnode != 0xffffffff),
-            .message = message.text,
+            .message = message.text.c_str(),
             .isFromMe = false,
             .time = time(NULL)};
         message_store.addMessage(msg_entry);

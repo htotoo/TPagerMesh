@@ -447,7 +447,7 @@ class MessageList : public FlexContainer {
 
         // --- 4. FELADÓ (Csak másoknál) ---
         if (!is_me) {
-            auto sender_lbl = bubble->add<Label>(msg.sender);
+            auto sender_lbl = bubble->add<Label>(msg.sender.c_str());
             lv_obj_t* sender_obj = sender_lbl->get_lv_obj();
 
             lv_obj_set_style_text_font(sender_obj, &font_montserrat_10_hun, 0);
@@ -457,7 +457,7 @@ class MessageList : public FlexContainer {
         }
 
         // --- 5. ÜZENET SZÖVEGE ---
-        auto body_lbl = bubble->add<Label>(msg.message);
+        auto body_lbl = bubble->add<Label>(msg.message.c_str());
         lv_obj_t* body_obj = body_lbl->get_lv_obj();
 
         lv_obj_set_style_text_font(body_obj, &font_montserrat_12_hun, 0);
