@@ -30,6 +30,7 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "drivers/XPowersLib.h"
 #include "drivers/st7796.hpp"
 #include "drivers/keypad_irq.hpp"
+#include "drivers/bq27220.hpp"
 #include "esp_timer.h"
 
 #include "message_store.hpp"
@@ -40,6 +41,7 @@ App_Main app_main_ui;
 ST7796Driver lcd;
 XPowersPPM PPM;
 KeypadDriver keypad;
+BQ27220 battery;
 MessageStore message_store;
 
 #define RE_A_GPIO 40
@@ -186,6 +188,12 @@ void updateTime() {
     app_main_ui.set_time(strftime_buf);
 }
 
+void updateBattery() {
+    uint8_t percentage = (uint8_t)battery.getSOC();  // PPM.getBatteryPercentage();
+    bool charging = PPM.isCharging();
+    app_main_ui.set_battery_status(percentage, charging);
+}
+
 void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
 
@@ -266,6 +274,14 @@ void app_main(void) {
 
     ESP_LOGI(TAG, "Initializing Keypad...");
     keypad.begin();
+
+    // battery init
+    if (battery.init()) {
+        ESP_LOGI("MAIN", "Battery Gauge Initialized");
+        battery.setDesignCapacity(1500);
+    } else {
+        ESP_LOGE("MAIN", "Battery Gauge Not Found");
+    }
 
     // LCD init
     lcd.begin();
@@ -383,8 +399,8 @@ void app_main(void) {
             mtCompact.nodeinfo_db.clearChangedFlag();
         }
 
-        if (timer % (10 * 100) == 0) {
-            app_main_ui.set_battery_status(99, true);  // todo real battery
+        if (timer % (3 * 100) == 0) {
+            updateBattery();
             updateTime();
         }
         if (xQueueReceive(event_queue_re, &e, pdMS_TO_TICKS(0))) {
