@@ -500,7 +500,7 @@ class MessageList : public FlexContainer {
         // --- 7. FRISSÍTÉS ---
         lv_obj_update_layout(obj);
         // Automata görgetés a legújabbra
-        lv_obj_scroll_to_view(bubble_obj, LV_ANIM_ON);
+        lv_obj_scroll_to_view(bubble_obj, LV_ANIM_OFF);
     }
 
    private:
