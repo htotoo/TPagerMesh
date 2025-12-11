@@ -66,7 +66,7 @@ class App_Main {
         lbl_battery->set_text_color(lv_color_hex(0xFFFFFF));
 
         // Clock
-        auto time_lbl = right_area->add<Label>("12:00");
+        time_lbl = right_area->add<Label>("12:00");
         time_lbl->set_text_color(lv_color_hex(0xFFFFFF));
 
         // 4. Body Row
@@ -122,6 +122,12 @@ class App_Main {
                     lbl_battery->set_text_color(lv_color_hex(0xFFFFFF));  // White
             }
             lbl_battery->set_text(bat_txt);
+        }
+    }
+
+    void set_time(const std::string& time_str) {
+        if (time_lbl) {
+            time_lbl->set_text(time_str);
         }
     }
 
@@ -197,7 +203,7 @@ class App_Main {
         input->set_width(LV_PCT(100));
         input->set_height(40);
         input->set_flex_grow(0);
-
+        input->set_scroll_target(chat_history);
         lv_obj_set_style_border_width(input->get_lv_obj(), 2, 0);
         lv_obj_set_style_border_side(input->get_lv_obj(), LV_BORDER_SIDE_TOP, 0);
 
@@ -255,6 +261,7 @@ class App_Main {
     // New labels
     Label* lbl_subtitle = nullptr;
     Label* lbl_battery = nullptr;
+    Label* time_lbl = nullptr;
 
     MessageList* chat_history = nullptr;
     lv_indev_t* encoder_indev = nullptr;

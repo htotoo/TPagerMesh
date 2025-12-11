@@ -176,6 +176,16 @@ void encoder_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     }
 }
 
+void updateTime() {
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    char strftime_buf[64];
+    strftime(strftime_buf, sizeof(strftime_buf), "%H:%M", &timeinfo);
+    app_main_ui.set_time(strftime_buf);
+}
+
 void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
 
@@ -375,6 +385,7 @@ void app_main(void) {
 
         if (timer % (10 * 100) == 0) {
             app_main_ui.set_battery_status(99, true);  // todo real battery
+            updateTime();
         }
         if (xQueueReceive(event_queue_re, &e, pdMS_TO_TICKS(0))) {
             switch (e.type) {

@@ -12,8 +12,6 @@
 LV_FONT_DECLARE(font_montserrat_10_hun);
 LV_FONT_DECLARE(font_montserrat_12_hun);
 
-static const char* UI_TAG = "UI_WIDGET";
-
 // --- Group Wrapper (RAII) ---
 class Group {
    public:
@@ -94,6 +92,24 @@ class Widget {
     }
     void add_to_group(Group* group) {
         if (group) lv_group_add_obj(group->get_handle(), obj);
+    }
+
+    void scroll_bounded_y(int delta) {
+        // 1. Get current scroll position (0 = top)
+        lv_coord_t current_y = lv_obj_get_scroll_y(obj);
+        // 2. Calculate the maximum Y position.
+        lv_coord_t range_remaining = lv_obj_get_scroll_bottom(obj);
+        lv_coord_t max_y = current_y + range_remaining;
+
+        // 3. Calculate target
+        lv_coord_t target_y = current_y + delta;
+
+        // 4. Clamp target between 0 and max_y
+        if (target_y < 0) target_y = 0;
+        if (target_y > max_y) target_y = max_y;
+
+        // 5. Apply exact scroll position
+        lv_obj_scroll_to_y(obj, target_y, LV_ANIM_ON);
     }
 
    protected:
@@ -291,6 +307,9 @@ class TextInput : public Widget {
         lv_obj_set_user_data(obj, this);
         lv_obj_add_event_cb(obj, internal_event_handler, LV_EVENT_ALL, NULL);
     }
+    void set_scroll_target(Widget* target_widget) {
+        scroll_target = target_widget;
+    }
     void set_on_submit(std::function<void(std::string)> cb) { on_submit = cb; }
     void set_on_longclick(std::function<void()> cb) { on_longclick = cb; }
     std::string get_text() { return std::string(lv_textarea_get_text(obj)); }
@@ -299,6 +318,7 @@ class TextInput : public Widget {
    private:
     std::function<void(std::string)> on_submit;
     std::function<void()> on_longclick;
+    Widget* scroll_target = nullptr;
     static void internal_event_handler(lv_event_t* e) {
         TextInput* self = static_cast<TextInput*>(lv_obj_get_user_data((lv_obj_t*)lv_event_get_target(e)));
         if (!self) return;
@@ -309,6 +329,19 @@ class TextInput : public Widget {
         }
         if (code == LV_EVENT_LONG_PRESSED_REPEAT) {
             return;  // this is what i needed, but called a lot while not released
+        }
+        if (code == LV_EVENT_KEY) {
+            // Check if the input comes specifically from an ENCODER
+            lv_indev_t* indev = lv_indev_get_act();
+            if (indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER && self->scroll_target) {
+                uint32_t key = lv_event_get_key(e);
+                int32_t step = 20;  // Pixel amount to scroll per click
+                if (key == LV_KEY_LEFT) {
+                    self->scroll_target->scroll_bounded_y(-step);
+                } else if (key == LV_KEY_RIGHT) {
+                    self->scroll_target->scroll_bounded_y(step);
+                }
+            }
         }
     }
 };
