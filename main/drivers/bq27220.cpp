@@ -10,7 +10,7 @@ static const char* TAG = "BQ27220";
 #define DM_DESIGN_CAPACITY_ADDR 0x929F
 #define DM_FCC_ADDR 0x929D
 
-BQ27220::BQ27220(uint8_t address) : I2CDevice(address, 100000) {
+BQ27220::BQ27220(uint8_t address) : I2CDevice(address, 40000) {
 }
 
 bool BQ27220::init() {

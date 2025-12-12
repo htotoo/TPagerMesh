@@ -5,7 +5,7 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 
 // TODOS:
 - fix xpowerslib i2c init error (shows error, but works. need to migrate it to i2cdev class)
-
+- auto mount sd on insert
 */
 
 #include <stdio.h>
@@ -32,7 +32,7 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "drivers/keypad_irq.hpp"
 #include "drivers/bq27220.hpp"
 #include "esp_timer.h"
-
+#include "fshelper.hpp"
 #include "message_store.hpp"
 #include "app_ui/app_main.hpp"
 
@@ -196,7 +196,11 @@ void updateBattery() {
 
 void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
+    // LCD init
+    lcd.begin();
+    lcd.setBrightness(100);  // this also turns on the display
 
+    mount_sdcard();
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_ap();
@@ -282,10 +286,6 @@ void app_main(void) {
     } else {
         ESP_LOGE("MAIN", "Battery Gauge Not Found");
     }
-
-    // LCD init
-    lcd.begin();
-    lcd.setBrightness(100);  // this also turns on the display
 
     // mt init
     mtCompact.loadNodeDb();
