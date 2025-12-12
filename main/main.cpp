@@ -196,11 +196,11 @@ void updateBattery() {
 
 void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
+
     // LCD init
     lcd.begin();
     lcd.setBrightness(100);  // this also turns on the display
 
-    mount_sdcard();
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_ap();
@@ -357,6 +357,8 @@ void app_main(void) {
             .time = time(NULL)};
         message_store.addMessage(msg_entry);
     });
+
+    mount_sdcard();
 
     std::string short_name = "Info";                                                                     // short name
     std::string long_name = "Hungarian Info Node";                                                       // long name

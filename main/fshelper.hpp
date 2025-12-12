@@ -44,6 +44,7 @@ bool mount_sdcard() {
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = SD_PIN_NUM_CS;
     slot_config.host_id = SPI2_HOST;
+    host.max_freq_khz = 400;
     // 5. Mount the Filesystem
     // Note: We use esp_vfs_fat_sdspi_mount here, NOT sdmmc_mount
     ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
