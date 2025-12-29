@@ -330,12 +330,17 @@ class TextInput : public Widget {
         if (code == LV_EVENT_LONG_PRESSED_REPEAT) {
             return;  // this is what i needed, but called a lot while not released
         }
-        if (code == LV_EVENT_ROTARY) {
+        if (code == LV_EVENT_KEY) {
             // Check if the input comes specifically from an ENCODER
-            if (self->scroll_target) {
-                int32_t diff = lv_event_get_rotary_diff(e);
-                int32_t step = 20 * diff;  // Pixel amount to scroll
-                self->scroll_target->scroll_bounded_y(step);
+            lv_indev_t* indev = lv_indev_get_act();
+            if (indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER && self->scroll_target) {
+                uint32_t key = lv_event_get_key(e);
+                int32_t step = 20;  // Pixel amount to scroll per click
+                if (key == LV_KEY_LEFT) {
+                    self->scroll_target->scroll_bounded_y(-step);
+                } else if (key == LV_KEY_RIGHT) {
+                    self->scroll_target->scroll_bounded_y(step);
+                }
             }
         }
     }

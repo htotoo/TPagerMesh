@@ -239,9 +239,6 @@ class App_Main {
             message_store->traverseHistory([this](const MessageStore::MessageEntry& entry) {
                 if (chat_history) {
                     chat_history->add_message(entry, false);
-                    if (chat_history->get_message_count() > 10) {
-                        return false;  // Stop traversal
-                    }
                 }
                 return true;  // Continue traversal
             });

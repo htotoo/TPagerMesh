@@ -7,10 +7,9 @@
 #include <functional>
 #include <ctime>
 #include <memory>
-#include <cstdlib>  // <--- ADDED: for std::abort()
+#include <cstdlib>
 #include "esp_heap_caps.h"
 
-// --- 1. Custom PSRAM Allocator ---
 template <typename T>
 struct PsramAllocator {
     using value_type = T;
@@ -27,15 +26,9 @@ struct PsramAllocator {
         if (!ptr) {
             ptr = heap_caps_malloc(n * sizeof(T), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         }
-
-        // --- FIX: Don't throw exceptions if -fno-exceptions is set ---
         if (!ptr) {
-            // In a no-exception environment, OOM (Out Of Memory) is fatal.
-            // We abort execution rather than crashing randomly later on null dereference.
             std::abort();
         }
-        // -------------------------------------------------------------
-
         return static_cast<T*>(ptr);
     }
 
@@ -55,7 +48,6 @@ struct PsramAllocator {
     }
 };
 
-// --- 2. Define PSRAM-aware String ---
 using PsramString = std::basic_string<char, std::char_traits<char>, PsramAllocator<char>>;
 
 class MessageStore {
