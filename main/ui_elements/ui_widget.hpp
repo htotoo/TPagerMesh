@@ -109,7 +109,7 @@ class Widget {
         if (target_y > max_y) target_y = max_y;
 
         // 5. Apply exact scroll position
-        lv_obj_scroll_to_y(obj, target_y, LV_ANIM_ON);
+        lv_obj_scroll_to_y(obj, target_y, LV_ANIM_OFF);
     }
 
    protected:
@@ -330,17 +330,12 @@ class TextInput : public Widget {
         if (code == LV_EVENT_LONG_PRESSED_REPEAT) {
             return;  // this is what i needed, but called a lot while not released
         }
-        if (code == LV_EVENT_KEY) {
+        if (code == LV_EVENT_ROTARY) {
             // Check if the input comes specifically from an ENCODER
-            lv_indev_t* indev = lv_indev_get_act();
-            if (indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER && self->scroll_target) {
-                uint32_t key = lv_event_get_key(e);
-                int32_t step = 20;  // Pixel amount to scroll per click
-                if (key == LV_KEY_LEFT) {
-                    self->scroll_target->scroll_bounded_y(-step);
-                } else if (key == LV_KEY_RIGHT) {
-                    self->scroll_target->scroll_bounded_y(step);
-                }
+            if (self->scroll_target) {
+                int32_t diff = lv_event_get_rotary_diff(e);
+                int32_t step = 20 * diff;  // Pixel amount to scroll
+                self->scroll_target->scroll_bounded_y(step);
             }
         }
     }
@@ -395,20 +390,19 @@ class MessageList : public FlexContainer {
         lv_obj_set_style_pad_right(obj, 4, LV_PART_SCROLLBAR);
     }
 
+    void scroll_to_bottom() {
+        lv_obj_scroll_to_y(obj, lv_obj_get_height(obj), LV_ANIM_OFF);
+    }
+
     // Utólag is állítható limit
     void set_max_history(size_t max) { max_messages = max; }
 
-    void add_message(const MessageStore::MessageEntry& msg) {
-        // --- 0. MEMÓRIA VÉDELEM (Törlés) ---
-        // Ha elértük a limitet, töröljük a legrégebbi üzeneteket.
-        // Mivel a children vektor unique_ptr-eket tárol, az erase()
-        // automatikusan meghívja a Widget destruktorát, ami pedig
-        // törli az LVGL objektumot (lv_obj_delete).
+    uint8_t get_message_count() const { return static_cast<uint8_t>(children.size()); }
+
+    void add_message(const MessageStore::MessageEntry& msg, bool need_update = true) {
         while (children.size() >= max_messages) {
             children.erase(children.begin());
         }
-
-        // --- 1. SZÉLESSÉG SZÁMÍTÁS ---
         int32_t screen_width = lv_display_get_horizontal_resolution(NULL);
         if (screen_width <= 0) screen_width = 320;
 
@@ -416,25 +410,21 @@ class MessageList : public FlexContainer {
         int32_t bubble_padding = 16;
         int32_t max_text_width = max_bubble_width - bubble_padding;
 
-        // --- 2. BUBORÉK LÉTREHOZÁSA ---
         auto bubble = add<Container>();
         lv_obj_t* bubble_obj = bubble->get_lv_obj();
 
         lv_obj_set_layout(bubble_obj, LV_LAYOUT_FLEX);
         lv_obj_set_flex_flow(bubble_obj, LV_FLEX_FLOW_COLUMN);
 
-        // Méretezés
         lv_obj_set_height(bubble_obj, LV_SIZE_CONTENT);
         lv_obj_set_width(bubble_obj, LV_SIZE_CONTENT);
         lv_obj_set_style_max_width(bubble_obj, max_bubble_width, 0);
 
-        // Stílus
         bubble->set_padding(8);
         lv_obj_set_style_radius(bubble_obj, 12, 0);
 
         bool is_me = msg.isFromMe;
 
-        // --- 3. IGAZÍTÁS ÉS SZÍNEK ---
         if (is_me) {
             lv_obj_set_align(bubble_obj, LV_ALIGN_TOP_RIGHT);
             bubble->set_bg_color(lv_color_hex(0x007AFF));
@@ -445,7 +435,6 @@ class MessageList : public FlexContainer {
             lv_obj_set_style_text_color(bubble_obj, lv_color_hex(0x000000), 0);
         }
 
-        // --- 4. FELADÓ (Csak másoknál) ---
         if (!is_me) {
             auto sender_lbl = bubble->add<Label>(msg.sender.c_str());
             lv_obj_t* sender_obj = sender_lbl->get_lv_obj();
@@ -456,7 +445,6 @@ class MessageList : public FlexContainer {
             lv_obj_set_style_pad_bottom(sender_obj, 2, 0);
         }
 
-        // --- 5. ÜZENET SZÖVEGE ---
         auto body_lbl = bubble->add<Label>(msg.message.c_str());
         lv_obj_t* body_obj = body_lbl->get_lv_obj();
 
@@ -471,7 +459,6 @@ class MessageList : public FlexContainer {
         else
             lv_obj_set_style_text_color(body_obj, lv_color_hex(0x000000), 0);
 
-        // --- 6. IDŐBÉLYEG ---
         char time_buf[16];
         struct tm tm_info;
         localtime_r(&msg.time, &tm_info);
@@ -483,7 +470,6 @@ class MessageList : public FlexContainer {
         lv_obj_set_style_text_font(time_obj, &font_montserrat_10_hun, 0);
         lv_obj_set_width(time_obj, LV_SIZE_CONTENT);
 
-        // Jobbra igazítás a buborékon belül
         lv_obj_set_align(time_obj, LV_ALIGN_BOTTOM_RIGHT);
         lv_obj_set_style_align(time_obj, LV_ALIGN_BOTTOM_RIGHT, 0);
         lv_obj_set_style_text_align(time_obj, LV_TEXT_ALIGN_RIGHT, 0);
@@ -497,10 +483,10 @@ class MessageList : public FlexContainer {
 
         lv_obj_set_style_pad_top(time_obj, 2, 0);
 
-        // --- 7. FRISSÍTÉS ---
-        lv_obj_update_layout(obj);
-        // Automata görgetés a legújabbra
-        lv_obj_scroll_to_view(bubble_obj, LV_ANIM_OFF);
+        if (need_update) {
+            lv_obj_update_layout(obj);
+            lv_obj_scroll_to_view(bubble_obj, LV_ANIM_OFF);
+        }
     }
 
    private:

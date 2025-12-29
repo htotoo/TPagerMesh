@@ -35,6 +35,7 @@ kb: meshtastic\firmware\src\input\TCA8418KeyboardBase.cpp
 #include "fshelper.hpp"
 #include "message_store.hpp"
 #include "app_ui/app_main.hpp"
+#include "ui_events.hpp"
 
 App_Main app_main_ui;
 
@@ -43,6 +44,7 @@ XPowersPPM PPM;
 KeypadDriver keypad;
 BQ27220 battery;
 MessageStore message_store;
+QueueHandle_t ui_event_queue;
 
 #define RE_A_GPIO 40
 #define RE_B_GPIO 41
@@ -196,7 +198,7 @@ void updateBattery() {
 
 void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
-
+    ui_event_queue = xQueueCreate(20, sizeof(UIEvent));
     // LCD init
     lcd.begin();
     lcd.setBrightness(100);  // this also turns on the display
@@ -391,6 +393,16 @@ void app_main(void) {
         ESP_LOGI(TAG, "Sending message: %s", msg.c_str());
         mtCompact.sendTextMessage(msg, 0xffffffff, 256);
     });
+
+    message_store.addListener([](const MessageStore::MessageEntry& entry) {
+        UIEvent new_msg_event;
+        new_msg_event.type = UIEventType::NEW_MESSAGE;
+        new_msg_event.data.msg_ptr = const_cast<MessageStore::MessageEntry*>(&entry);
+        xQueueSend(ui_event_queue, &new_msg_event, pdMS_TO_TICKS(0));
+    });
+
+    UIEvent uie;
+
     while (1) {
         timer++;
         if (timer % (30 * 60 * 100) == 0) {
@@ -430,6 +442,18 @@ void app_main(void) {
                     break;
             }
         }
+        if (xQueueReceive(ui_event_queue, &uie, pdMS_TO_TICKS(0))) {
+            switch (uie.type) {
+                case UIEventType::NEW_MESSAGE:
+                    if (uie.data.msg_ptr) {
+                        app_main_ui.on_new_message(*(uie.data.msg_ptr));
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+
         lv_tick_inc(10);
         lv_timer_handler();
         vTaskDelay(pdMS_TO_TICKS(10));  // wait 10 milliseconds

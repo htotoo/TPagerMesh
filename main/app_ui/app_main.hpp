@@ -218,7 +218,7 @@ class App_Main {
             // Handle send...
             if (on_send_cb) {
                 on_send_cb(text);
-                chat_history->add_message(MessageStore::MessageEntry{
+                if (message_store) message_store->addMessage(MessageStore::MessageEntry{
                     .sender = "Me",
                     .channel = 0,
                     .isDirect = false,
@@ -234,17 +234,33 @@ class App_Main {
             ESP_LOGI("UI", "Input long-clicked");
             // should show channel selector here
         });
+        // load older messages from store
+        if (message_store) {
+            message_store->traverseHistory([this](const MessageStore::MessageEntry& entry) {
+                if (chat_history) {
+                    chat_history->add_message(entry, false);
+                    if (chat_history->get_message_count() > 10) {
+                        return false;  // Stop traversal
+                    }
+                }
+                return true;  // Continue traversal
+            });
+        }
+        lv_obj_update_layout(content_area->get_lv_obj());
+        if (chat_history) {
+            chat_history->scroll_to_bottom();
+        }
     }
 
     void set_message_store(MessageStore* store) {
         if (message_store == store) return;
         message_store = store;
-        if (message_store) {
-            message_store->addListener([this](const MessageStore::MessageEntry& entry) {
-                if (chat_history) {
-                    chat_history->add_message(entry);
-                }
-            });
+    }
+
+    void on_new_message(const MessageStore::MessageEntry& msg) {
+        if (chat_history) {
+            chat_history->add_message(msg);
+            chat_history->scroll_to_bottom();
         }
     }
 
