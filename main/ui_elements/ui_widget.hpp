@@ -335,7 +335,7 @@ class TextInput : public Widget {
             lv_indev_t* indev = lv_indev_get_act();
             if (indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER && self->scroll_target) {
                 uint32_t key = lv_event_get_key(e);
-                int32_t step = 20;  // Pixel amount to scroll per click
+                int32_t step = 30;  // Pixel amount to scroll per click
                 if (key == LV_KEY_LEFT) {
                     self->scroll_target->scroll_bounded_y(-step);
                 } else if (key == LV_KEY_RIGHT) {
