@@ -10,11 +10,11 @@ void MessageStore::addListener(MessageCallback cb) {
 
 void MessageStore::addMessage(MessageEntry entry) {
     // entry is moved into the deque (PSRAM)
-    messages_.push_front(std::move(entry));
+    messages_.push_back(std::move(entry));
     while (messages_.size() > cacheSize_) {
-        messages_.pop_back();
+        messages_.pop_front();
     }
-    MessageEntry& stored = messages_.front();
+    MessageEntry& stored = messages_.back();
     for (auto& listener : listeners_) {
         if (listener) listener(stored);
     }
