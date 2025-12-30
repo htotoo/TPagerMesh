@@ -50,6 +50,39 @@ class GpsProcessor {
         }
     }
 
+    void checkTime(int year, int month, int day, int hour, int minute, int second) {
+        if (_gpsTimeSet) return;
+        time_t now = time(nullptr);
+        if (now == (time_t)-1) return;
+
+        struct tm now_tm;
+        if (!gmtime_r(&now, &now_tm)) return;
+
+        int cur_year = now_tm.tm_year + 1900;
+        int cur_month = now_tm.tm_mon + 1;
+
+        if (cur_year > year) return;
+        if (cur_year == year && cur_month >= month) return;
+
+        struct tm gps_tm = {};
+        gps_tm.tm_year = year - 1900;
+        gps_tm.tm_mon = month - 1;
+        gps_tm.tm_mday = day;
+        gps_tm.tm_hour = hour;
+        gps_tm.tm_min = minute;
+        gps_tm.tm_sec = second;
+
+        time_t gps_time;
+        gps_time = mktime(&gps_tm);
+        if (gps_time == (time_t)-1) return;
+
+        struct timeval tv;
+        tv.tv_sec = gps_time;
+        tv.tv_usec = 0;
+        settimeofday(&tv, nullptr);
+        _gpsTimeSet = true;
+    }
+
     Coords getCurrentCoords() const { return _currentCoords; }
 
     /**
@@ -91,6 +124,7 @@ class GpsProcessor {
     uint32_t _maxTransmitInt;
     uint32_t _minSendInt;
     bool _hasSentOnce;
+    bool _gpsTimeSet = false;
 
     void markAsSent(uint32_t currentMillis) {
         _lastSentCoords = _currentCoords;
