@@ -62,9 +62,9 @@ struct {
 button_t btn_power;
 
 GpsProcessor gps_processor{
-    10.0f,  // Min distance change to trigger a send (meters)
-    3,      // Max time between movement-based sends (minutes)
-    30      // Min send interval (minutes)
+    100.0f,  // Min distance change to trigger a send (meters)
+    3,       // Max time between movement-based sends (minutes)
+    30       // Min send interval (minutes)
 };
 
 // #define CLIENTROLEALERT 1
