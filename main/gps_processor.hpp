@@ -51,7 +51,7 @@ class GpsProcessor {
     }
 
     void checkTime(int year, int month, int day, int hour, int minute, int second) {
-        if (_gpsTimeSet) return;
+        // if (_gpsTimeSet) return;
         time_t now = time(nullptr);
         if (now == (time_t)-1) return;
 
@@ -62,7 +62,12 @@ class GpsProcessor {
         int cur_month = now_tm.tm_mon + 1;
 
         if (cur_year > year) return;
-        if (cur_year == year && cur_month >= month) return;
+        if (cur_year == year && cur_month > month) return;
+        if (cur_year == year && cur_month == month && now_tm.tm_mday >= day) return;
+        if (cur_year == year && cur_month == month && now_tm.tm_mday == day &&
+            now_tm.tm_hour >= hour) return;
+        if (cur_year == year && cur_month == month && now_tm.tm_mday == day &&
+            now_tm.tm_hour == hour && now_tm.tm_min >= minute) return;
 
         struct tm gps_tm = {};
         gps_tm.tm_year = year - 1900;
